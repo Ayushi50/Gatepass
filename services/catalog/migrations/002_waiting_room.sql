@@ -1,0 +1,1 @@
+ALTER TABLE events ADD COLUMN waiting_room BOOLEAN NOT NULL DEFAULT false;

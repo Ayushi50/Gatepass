@@ -15,6 +15,8 @@ export interface CreateEventInput {
   venue: string;
   startsAt: Date;
   currency?: string;
+  /** High-demand show: booking requires admission through the waiting room. */
+  waitingRoom?: boolean;
   seats: SeatSpec[];
 }
 
@@ -25,6 +27,7 @@ export interface EventSummary {
   venue: string;
   startsAt: string; // ISO
   currency: string;
+  waitingRoom: boolean;
   minPriceMinor: number;
   tiers: { name: string; priceMinor: number; seatCount: number }[];
 }
@@ -47,9 +50,18 @@ export async function createEvent(pool: Pool, input: CreateEventInput): Promise<
   try {
     await withTransaction(pool, async (tx) => {
       await tx.query(
-        `INSERT INTO events (id, organizer_id, title, category, venue, starts_at, currency)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [id, input.organizerId, input.title, input.category, input.venue, input.startsAt, currency],
+        `INSERT INTO events (id, organizer_id, title, category, venue, starts_at, currency, waiting_room)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [
+          id,
+          input.organizerId,
+          input.title,
+          input.category,
+          input.venue,
+          input.startsAt,
+          currency,
+          input.waitingRoom ?? false,
+        ],
       );
       for (const [i, t] of tiers.entries()) {
         await tx.query(
@@ -83,6 +95,7 @@ export async function createEvent(pool: Pool, input: CreateEventInput): Promise<
             venue: input.venue,
             startsAtMs: BigInt(input.startsAt.getTime()),
             currency,
+            waitingRoom: input.waitingRoom ?? false,
             tiers: tiers.map((t) => ({
               name: t.name,
               priceMinor: BigInt(t.priceMinor),
@@ -114,6 +127,7 @@ interface EventRow {
   venue: string;
   starts_at: Date;
   currency: string;
+  waiting_room: boolean;
 }
 
 async function withTiers(pool: Pool, rows: EventRow[]): Promise<EventSummary[]> {
@@ -142,6 +156,7 @@ async function withTiers(pool: Pool, rows: EventRow[]): Promise<EventSummary[]> 
       venue: r.venue,
       startsAt: r.starts_at.toISOString(),
       currency: r.currency,
+      waitingRoom: r.waiting_room,
       minPriceMinor: mine.length ? Math.min(...mine.map((t) => t.priceMinor)) : 0,
       tiers: mine,
     };
@@ -150,14 +165,14 @@ async function withTiers(pool: Pool, rows: EventRow[]): Promise<EventSummary[]> 
 
 export async function listEvents(pool: Pool): Promise<EventSummary[]> {
   const { rows } = await pool.query<EventRow>(
-    'SELECT id, title, category, venue, starts_at, currency FROM events ORDER BY starts_at, id',
+    'SELECT id, title, category, venue, starts_at, currency, waiting_room FROM events ORDER BY starts_at, id',
   );
   return withTiers(pool, rows);
 }
 
 export async function getEvent(pool: Pool, id: string): Promise<EventSummary> {
   const { rows } = await pool.query<EventRow>(
-    'SELECT id, title, category, venue, starts_at, currency FROM events WHERE id = $1',
+    'SELECT id, title, category, venue, starts_at, currency, waiting_room FROM events WHERE id = $1',
     [id],
   );
   if (rows.length === 0) throw new NotFoundError(`event ${id} not found`);

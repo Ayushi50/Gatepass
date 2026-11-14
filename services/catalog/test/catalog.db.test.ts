@@ -108,6 +108,19 @@ describe('createEvent', () => {
   });
 });
 
+describe('waiting room flag', () => {
+  it('is published in event.published and shown in the summary; off by default', async () => {
+    await createEvent(db.pool, { ...small('wr-on'), waitingRoom: true });
+    await createEvent(db.pool, small('wr-off'));
+    expect((await getEvent(db.pool, 'wr-on')).waitingRoom).toBe(true);
+    expect((await getEvent(db.pool, 'wr-off')).waitingRoom).toBe(false);
+    const out = await db.pool.query("SELECT payload FROM outbox WHERE aggregate_id = 'wr-on'");
+    const env = decodeEnvelope(out.rows[0].payload);
+    if (env.payload.case !== 'eventPublished') throw new Error('wrong payload');
+    expect(env.payload.value.waitingRoom).toBe(true);
+  });
+});
+
 describe('demo events (design/events.html)', () => {
   it('has the five shows with an A-F, 14-per-row layout and three tiers', () => {
     expect(DEMO_EVENTS.map((e) => e.title)).toEqual([
@@ -121,6 +134,7 @@ describe('demo events (design/events.html)', () => {
       expect(e.seats).toHaveLength(6 * 14);
       expect([...new Set(e.seats.map((s) => s.tier))]).toEqual(['Front', 'Mid', 'Back']);
     }
+    expect(DEMO_EVENTS.filter((e) => e.waitingRoom).map((e) => e.id)).toEqual(['neon-nights']);
     const neon = DEMO_EVENTS[0]!;
     expect(neon.seats.find((s) => s.seatId === 'C6')).toMatchObject({
       tier: 'Mid',

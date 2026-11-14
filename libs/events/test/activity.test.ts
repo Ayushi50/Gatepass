@@ -89,6 +89,85 @@ describe('describeActivity', () => {
     ).toBe(`Payment received · ${bookingCode('bk-1')} · ₹3,600`);
   });
 
+  it('describes refunds, and says nothing twice about an expiry', () => {
+    expect(
+      describeActivity(
+        env('refund.requested' as never, {
+          refundId: 'r',
+          bookingId: 'bk-1',
+          ticketId: 't',
+          userId: 'u',
+          amountMinor: 180000n,
+          currency: 'INR',
+          reason: '',
+          eventId: 'ev',
+          seatId: 'C6',
+          organizerId: 'o',
+        }),
+      )!.text,
+    ).toBe('Refund requested · Row C · seat 6');
+    expect(
+      describeActivity(
+        env('refund.completed' as never, {
+          refundId: 'r',
+          bookingId: 'bk-1',
+          paymentId: 'p',
+          amountMinor: 240000n,
+          currency: 'INR',
+          eventId: 'ev',
+          ticketId: 't',
+          seatId: 'C6',
+          userId: 'u',
+          automatic: false,
+        }),
+      )!.text,
+    ).toBe(`Booking ${bookingCode('bk-1')} · ₹2,400`);
+    expect(
+      describeActivity(
+        env('seats.sale_failed' as never, {
+          bookingId: 'bk-1',
+          eventId: 'ev',
+          seatIds: ['A1'],
+          reason: 'hold_released',
+        }),
+      ),
+    ).toMatchObject({ failed: true });
+    expect(
+      describeActivity(
+        env('seats.released' as never, {
+          bookingId: 'bk-1',
+          eventId: 'ev',
+          seatIds: ['A1'],
+          reason: 'hold_expired',
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      describeActivity(
+        env('seats.released' as never, {
+          bookingId: 'bk-1',
+          eventId: 'ev',
+          seatIds: ['A1'],
+          reason: 'refunded',
+        }),
+      )!.text,
+    ).toBe('Row A · seat 1 returned to sale');
+    expect(
+      describeActivity(
+        env('refund.approved' as never, {
+          refundId: 'r',
+          bookingId: 'bk-1',
+          ticketId: 't',
+          eventId: 'ev',
+          seatId: 'A1',
+          userId: 'u',
+          amountMinor: 1n,
+          currency: 'INR',
+        }),
+      ),
+    ).toBeNull();
+  });
+
   it('skips events that are not feed material or cannot be attributed to a show', () => {
     expect(
       describeActivity(

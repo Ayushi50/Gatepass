@@ -6,11 +6,13 @@ import {
   HoldExpiredSchema,
   PaymentFailedSchema,
   PaymentSucceededSchema,
+  RefundApprovedSchema,
   RefundCompletedSchema,
   RefundRequestedSchema,
   SeatsHeldSchema,
   SeatsHoldFailedSchema,
   SeatsReleasedSchema,
+  SeatsSaleFailedSchema,
   SeatsSoldSchema,
   TicketIssuedSchema,
   TicketVoidedSchema,
@@ -36,6 +38,8 @@ export const EVENT_CATALOG = {
   'refund.completed': { case: 'refundCompleted', schema: RefundCompletedSchema },
   'ticket.issued': { case: 'ticketIssued', schema: TicketIssuedSchema },
   'ticket.voided': { case: 'ticketVoided', schema: TicketVoidedSchema },
+  'refund.approved': { case: 'refundApproved', schema: RefundApprovedSchema },
+  'seats.sale_failed': { case: 'seatsSaleFailed', schema: SeatsSaleFailedSchema },
 } as const;
 
 export type EventType = keyof typeof EVENT_CATALOG;

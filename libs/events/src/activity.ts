@@ -60,6 +60,8 @@ export function describeActivity(env: EventEnvelope): ActivityItem | null {
     case 'seatsSold':
       return item(p.value.eventId, p.value.bookingId, describeSeats(p.value.seatIds));
     case 'seatsReleased':
+      // an expiry already produced a hold.expired line saying the same thing
+      if (p.value.reason === 'hold_expired') return null;
       return item(
         p.value.eventId,
         p.value.bookingId,
@@ -118,8 +120,27 @@ export function describeActivity(env: EventEnvelope): ActivityItem | null {
         p.value.bookingId,
         `Ticket ${p.value.seatId} voided · ${p.value.reason}`,
       );
+    case 'seatsSaleFailed':
+      return item(
+        p.value.eventId,
+        p.value.bookingId,
+        `Booking ${bookingCode(p.value.bookingId)} · hold expired before payment cleared`,
+        true,
+      );
+    case 'refundRequested':
+      return item(
+        p.value.eventId,
+        p.value.bookingId,
+        `Refund requested · ${describeSeats([p.value.seatId])}`,
+      );
+    case 'refundCompleted':
+      return item(
+        p.value.eventId,
+        p.value.bookingId,
+        `Booking ${bookingCode(p.value.bookingId)} · ${formatMoney(p.value.amountMinor, p.value.currency)}`,
+      );
     default:
-      // event.published, booking.requested: not feed material. refund.*: carry no event id yet.
+      // event.published, booking.requested, refund.approved: not feed material.
       return null;
   }
 }

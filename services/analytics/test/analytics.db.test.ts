@@ -92,8 +92,8 @@ const feed = (organizerId = 'org-1', limit = 20) => getActivity(pool, eventId, o
 const summary = (organizerId = 'org-1') => getSummary(pool, eventId, organizerId);
 
 describe('consumes every event type', () => {
-  it('subscribes to all 15 topics', () => {
-    expect(CONSUMED_TOPICS).toHaveLength(15);
+  it('subscribes to all 17 topics', () => {
+    expect(CONSUMED_TOPICS).toHaveLength(17);
     expect(CONSUMED_TOPICS).toContain('seats.sold');
     expect(CONSUMED_TOPICS).toContain('refund.completed');
   });

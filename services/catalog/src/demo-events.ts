@@ -29,6 +29,7 @@ export const DEMO_EVENTS: CreateEventInput[] = [
     id: 'neon-nights',
     organizerId: DEMO_ORGANIZER,
     title: 'Neon Nights Live',
+    waitingRoom: true, // the demo high-demand show
     category: 'Music',
     venue: 'Open Air Arena',
     startsAt: new Date('2026-12-06T19:30:00+05:30'),
