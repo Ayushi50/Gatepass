@@ -24,4 +24,9 @@ export default tseslint.config(
       eqeqeq: 'error',
     },
   },
+  {
+    // NestJS injects by constructor parameter type, so those imports must stay value imports.
+    files: ['services/**/*.ts'],
+    rules: { '@typescript-eslint/consistent-type-imports': 'off' },
+  },
 );

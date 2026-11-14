@@ -1,5 +1,5 @@
 import { Module, type DynamicModule } from '@nestjs/common';
-import { APP_GUARD, Reflector } from '@nestjs/core';
+import { Reflector } from '@nestjs/core';
 import { AuthGuard, JWT_SECRET } from './auth/auth.guard';
 import type { BookingClient, CatalogClient, InventoryClient } from './clients/clients';
 import { BOOKINGS, BookingsController } from './http/bookings.controller';

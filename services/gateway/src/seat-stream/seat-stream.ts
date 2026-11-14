@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Observable, Subject, filter, map } from 'rxjs';
+import { Subject, filter, type Observable } from 'rxjs';
 import { v4 as uuidv4 } from 'uuid';
 import type { EventEnvelope } from '@gatepass/events';
 import { KafkaEventConsumer, type DeadLetterPublisher } from '@gatepass/messaging';
