@@ -346,10 +346,18 @@ describe('payment.succeeded handler', () => {
     expect(await outboxEvents('seats.sold', 'ev-sold2')).toHaveLength(1);
   });
 
-  it('fails loudly (so it is retried, then dead-lettered) when the booking holds no seats', async () => {
-    await expect(onPaymentSucceeded(pool, paymentSucceeded('no-such-booking'))).rejects.toThrow(
-      /holds no seats/,
+  it('reports seats.sale_failed (not an error) when the booking holds no seats, so payment can refund', async () => {
+    await onPaymentSucceeded(pool, paymentSucceeded('no-such-booking'));
+    const failed = await pool.query(
+      "SELECT payload FROM outbox WHERE event_type = 'seats.sale_failed' AND correlation_id = 'no-such-booking'",
     );
+    expect(failed.rowCount).toBe(1);
+    const env = decodeEnvelope(failed.rows[0].payload);
+    if (env.payload.case !== 'seatsSaleFailed') throw new Error('wrong payload');
+    expect(env.payload.value).toMatchObject({
+      bookingId: 'no-such-booking',
+      reason: 'hold_released',
+    });
   });
 });
 

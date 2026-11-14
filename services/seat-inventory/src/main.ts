@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { createPool, migrate, requireEnv } from '@gatepass/db';
 import { KafkaEventConsumer, KafkaEventPublisher, createKafka } from '@gatepass/messaging';
 import { OutboxRelay } from '@gatepass/outbox';
+import { HoldSweeper } from './expiry';
 import { CONSUMED_TOPICS, CONSUMER_GROUP, seatInventoryHandler } from './handlers';
 import { InventoryModule } from './http/inventory.module';
 
@@ -20,6 +21,12 @@ async function main(): Promise<void> {
     onError: (e) => console.error('[seat-inventory] outbox relay:', (e as Error).message),
   });
   relay.start();
+
+  new HoldSweeper(pool, {
+    intervalMs: Number(process.env.HOLD_SWEEP_INTERVAL_MS ?? 1000),
+    graceMs: Number(process.env.HOLD_GRACE_MS ?? 60_000),
+    onError: (e) => console.error('[seat-inventory] hold sweeper:', (e as Error).message),
+  }).start();
 
   const handle = seatInventoryHandler(pool, {
     holdTtlMs: process.env.HOLD_TTL_MS ? Number(process.env.HOLD_TTL_MS) : undefined,

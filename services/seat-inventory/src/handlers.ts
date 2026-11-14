@@ -1,6 +1,6 @@
 import type { Pool } from 'pg';
 import { buildEnvelope, type EventEnvelope } from '@gatepass/events';
-import { appendToOutbox, processOnce } from '@gatepass/outbox';
+import { appendToOutbox, processOnce, type Queryable } from '@gatepass/outbox';
 import { holdSeats } from './hold';
 
 export const PRODUCER = 'seat-inventory';
@@ -10,6 +10,7 @@ export const CONSUMED_TOPICS = [
   'booking.requested',
   'payment.succeeded',
   'payment.failed',
+  'refund.completed',
 ];
 export const DEFAULT_HOLD_TTL_MS = 10 * 60 * 1000;
 
@@ -91,45 +92,71 @@ export async function onBookingRequested(
   });
 }
 
+/** Locks a booking's held seats in a fixed order (so a sale, a release and a sweep cannot deadlock). */
+async function lockHeldSeats(
+  tx: Queryable,
+  bookingId: string,
+): Promise<{ event_id: string; seat_id: string }[]> {
+  const { rows } = await tx.query<{ event_id: string; seat_id: string }>(
+    `SELECT event_id, seat_id FROM seats
+      WHERE booking_id = $1 AND state = 'held' ORDER BY seat_id FOR UPDATE`,
+    [bookingId],
+  );
+  return rows;
+}
+
 /**
  * payment.succeeded -> the booking's held seats become sold, and seats.sold is published.
- * Only seats still HELD by this booking can be sold. If none are (and none were already sold
- * to it), the payment has nowhere to go; that must be loud, so this throws and the message is
- * retried and then dead-lettered. (Phase 4 decides what to do when a payment outlives its hold.)
+ *
+ * If the booking no longer holds its seats, the hold was released before the payment landed
+ * (the expiry-vs-payment race). The sale cannot happen, so seats.sale_failed is published and
+ * the payment service refunds the buyer. Either way the outcome is decided by who locked the
+ * seat rows first, so a booking is never both sold and released.
  */
 export async function onPaymentSucceeded(pool: Pool, env: EventEnvelope): Promise<void> {
   if (env.payload.case !== 'paymentSucceeded') return;
-  const bookingId = env.payload.value.bookingId;
+  const payment = env.payload.value;
+  const bookingId = payment.bookingId;
   await processOnce(pool, CONSUMER_GROUP, env, async (tx) => {
-    const sold = await tx.query<{ event_id: string; seat_id: string }>(
-      `UPDATE seats
-          SET state = 'sold', hold_expires_at = NULL, version = version + 1, updated_at = now()
-        WHERE booking_id = $1 AND state = 'held'
-    RETURNING event_id, seat_id`,
-      [bookingId],
-    );
-    if (sold.rowCount === 0) {
-      const already = await tx.query(
-        "SELECT 1 FROM seats WHERE booking_id = $1 AND state = 'sold'",
+    const locked = await lockHeldSeats(tx, bookingId);
+    if (locked.length > 0) {
+      await tx.query(
+        `UPDATE seats
+            SET state = 'sold', hold_expires_at = NULL, version = version + 1, updated_at = now()
+          WHERE booking_id = $1 AND state = 'held'`,
         [bookingId],
       );
-      if (already.rowCount) return; // already sold to this booking
-      throw new Error(`payment.succeeded for booking ${bookingId} but it holds no seats`);
+      const eventId = locked[0]!.event_id;
+      await appendToOutbox(
+        tx,
+        buildEnvelope({
+          eventType: 'seats.sold',
+          correlationId: env.correlationId,
+          causationId: env.eventId,
+          producer: PRODUCER,
+          payload: { bookingId, eventId, seatIds: locked.map((r) => r.seat_id) },
+        }),
+        eventId,
+      );
+      return;
     }
+
+    const already = await tx.query(
+      "SELECT 1 FROM seats WHERE booking_id = $1 AND state = 'sold' LIMIT 1",
+      [bookingId],
+    );
+    if (already.rowCount) return; // already sold to this booking
+
     await appendToOutbox(
       tx,
       buildEnvelope({
-        eventType: 'seats.sold',
+        eventType: 'seats.sale_failed',
         correlationId: env.correlationId,
         causationId: env.eventId,
         producer: PRODUCER,
-        payload: {
-          bookingId,
-          eventId: sold.rows[0]!.event_id,
-          seatIds: sold.rows.map((r) => r.seat_id).sort(),
-        },
+        payload: { bookingId, eventId: payment.eventId, seatIds: [], reason: 'hold_released' },
       }),
-      sold.rows[0]!.event_id,
+      payment.eventId || bookingId,
     );
   });
 }
@@ -142,15 +169,16 @@ export async function onPaymentFailed(pool: Pool, env: EventEnvelope): Promise<v
   if (env.payload.case !== 'paymentFailed') return;
   const bookingId = env.payload.value.bookingId;
   await processOnce(pool, CONSUMER_GROUP, env, async (tx) => {
-    const released = await tx.query<{ event_id: string; seat_id: string }>(
+    const locked = await lockHeldSeats(tx, bookingId);
+    if (locked.length === 0) return; // nothing held: already released or already sold
+    await tx.query(
       `UPDATE seats
           SET state = 'available', booking_id = NULL, hold_expires_at = NULL,
               version = version + 1, updated_at = now()
-        WHERE booking_id = $1 AND state = 'held'
-    RETURNING event_id, seat_id`,
+        WHERE booking_id = $1 AND state = 'held'`,
       [bookingId],
     );
-    if (released.rowCount === 0) return; // nothing held: already released or already sold
+    const eventId = locked[0]!.event_id;
     await appendToOutbox(
       tx,
       buildEnvelope({
@@ -160,12 +188,48 @@ export async function onPaymentFailed(pool: Pool, env: EventEnvelope): Promise<v
         producer: PRODUCER,
         payload: {
           bookingId,
-          eventId: released.rows[0]!.event_id,
-          seatIds: released.rows.map((r) => r.seat_id).sort(),
+          eventId,
+          seatIds: locked.map((r) => r.seat_id),
           reason: 'payment_failed',
         },
       }),
-      released.rows[0]!.event_id,
+      eventId,
+    );
+  });
+}
+
+/**
+ * refund.completed -> the refunded ticket's seat goes back on sale. An automatic refund names no
+ * seat (nothing was ever sold), so it changes nothing here.
+ */
+export async function onRefundCompleted(pool: Pool, env: EventEnvelope): Promise<void> {
+  if (env.payload.case !== 'refundCompleted') return;
+  const r = env.payload.value;
+  if (!r.seatId || !r.eventId) return;
+  await processOnce(pool, CONSUMER_GROUP, env, async (tx) => {
+    const freed = await tx.query(
+      `UPDATE seats
+          SET state = 'available', booking_id = NULL, hold_expires_at = NULL,
+              version = version + 1, updated_at = now()
+        WHERE event_id = $1 AND seat_id = $2 AND booking_id = $3 AND state = 'sold'`,
+      [r.eventId, r.seatId, r.bookingId],
+    );
+    if (freed.rowCount === 0) return; // not sold to this booking (already returned)
+    await appendToOutbox(
+      tx,
+      buildEnvelope({
+        eventType: 'seats.released',
+        correlationId: env.correlationId,
+        causationId: env.eventId,
+        producer: PRODUCER,
+        payload: {
+          bookingId: r.bookingId,
+          eventId: r.eventId,
+          seatIds: [r.seatId],
+          reason: 'refunded',
+        },
+      }),
+      r.eventId,
     );
   });
 }
@@ -177,5 +241,6 @@ export function seatInventoryHandler(pool: Pool, opts: HandlerOptions = {}) {
     if (env.eventType === 'booking.requested') return onBookingRequested(pool, env, opts);
     if (env.eventType === 'payment.succeeded') return onPaymentSucceeded(pool, env);
     if (env.eventType === 'payment.failed') return onPaymentFailed(pool, env);
+    if (env.eventType === 'refund.completed') return onRefundCompleted(pool, env);
   };
 }
