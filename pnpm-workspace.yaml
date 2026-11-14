@@ -4,3 +4,11 @@ packages:
   - 'libs/*'
   - 'tests/*'
   - 'scripts/*'
+# dependencies allowed to run install scripts (they fetch or link the buf, Postgres and Redis programs)
+allowBuilds:
+  '@bufbuild/buf': true
+  '@embedded-postgres/darwin-arm64': true
+  '@embedded-postgres/darwin-x64': true
+  '@embedded-postgres/linux-arm64': true
+  '@embedded-postgres/linux-x64': true
+  redis-memory-server: true
