@@ -15,7 +15,7 @@ module.exports = {
     {
       ...base,
       displayName: 'unit',
-      testMatch: ['<rootDir>/libs/*/test/**/*.test.ts'],
+      testMatch: ['<rootDir>/libs/*/test/**/*.test.ts', '<rootDir>/services/*/test/**/*.test.ts'],
     },
   ],
 };
