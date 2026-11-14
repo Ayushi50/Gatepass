@@ -441,6 +441,31 @@ importers:
         specifier: ^7.3.2
         version: 7.3.2(supports-color@8.1.1)
 
+  services/notification:
+    dependencies:
+      '@gatepass/db':
+        specifier: workspace:*
+        version: link:../../libs/db
+      '@gatepass/events':
+        specifier: workspace:*
+        version: link:../../libs/events
+      '@gatepass/messaging':
+        specifier: workspace:*
+        version: link:../../libs/messaging
+      '@gatepass/outbox':
+        specifier: workspace:*
+        version: link:../../libs/outbox
+      pg:
+        specifier: ^8.23.1
+        version: 8.23.1
+    devDependencies:
+      '@gatepass/testing':
+        specifier: workspace:*
+        version: link:../../libs/testing
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
+
   services/payment:
     dependencies:
       '@gatepass/db':
