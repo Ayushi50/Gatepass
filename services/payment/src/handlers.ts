@@ -1,9 +1,16 @@
 import type { Pool } from 'pg';
 import type { EventEnvelope } from '@gatepass/events';
 import { processOnce } from '@gatepass/outbox';
+import type { PaymentProvider } from './providers/provider';
+import { onRefundApproved, onSeatsSaleFailed } from './refunds';
 
 export const CONSUMER_GROUP = 'payment';
-export const CONSUMED_TOPICS = ['seats.held', 'seats.released'];
+export const CONSUMED_TOPICS = [
+  'seats.held',
+  'seats.released',
+  'refund.approved',
+  'seats.sale_failed',
+];
 
 /** seats.held -> the booking can now be paid, for this amount, until the hold expires. */
 export async function onSeatsHeld(pool: Pool, env: EventEnvelope): Promise<void> {
@@ -31,9 +38,12 @@ export async function onSeatsReleased(pool: Pool, env: EventEnvelope): Promise<v
   });
 }
 
-export function paymentHandler(pool: Pool) {
+export function paymentHandler(pool: Pool, provider: PaymentProvider) {
+  const deps = { pool, provider };
   return async (env: EventEnvelope): Promise<void> => {
     if (env.eventType === 'seats.held') return onSeatsHeld(pool, env);
     if (env.eventType === 'seats.released') return onSeatsReleased(pool, env);
+    if (env.eventType === 'refund.approved') return onRefundApproved(deps, env);
+    if (env.eventType === 'seats.sale_failed') return onSeatsSaleFailed(deps, env);
   };
 }

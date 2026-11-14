@@ -170,6 +170,78 @@ describe('RazorpayTestProvider', () => {
     await expect(down.createCharge(charge())).rejects.toBeInstanceOf(ProviderUnavailableError);
   });
 
+  describe('refunds', () => {
+    const refundReq = {
+      refundId: 'rf_000001',
+      paymentId: 'pay_000001',
+      providerPaymentId: 'pay_rzp1',
+      amountMinor: 180000,
+      currency: 'INR',
+    };
+    const providerWith = (
+      status: number,
+      body: object,
+      calls: { url: string; init: RequestInit }[] = [],
+    ) =>
+      new RazorpayTestProvider({
+        ...base,
+        keyId: 'rzp_test_k',
+        fetchImpl: (async (url: string, init: RequestInit) => {
+          calls.push({ url, init });
+          return new Response(JSON.stringify(body), { status });
+        }) as unknown as typeof fetch,
+      });
+
+    it('refunds against the provider payment id with our refund id as the key, and maps the status', async () => {
+      const calls: { url: string; init: RequestInit }[] = [];
+      const done = await providerWith(200, { id: 'rfnd_1', status: 'processed' }, calls).refund(
+        refundReq,
+      );
+      expect(done).toEqual({ providerRefundRef: 'rfnd_1', status: 'completed' });
+      expect(calls[0]!.url).toBe('https://api.razorpay.com/v1/payments/pay_rzp1/refund');
+      expect(JSON.parse(calls[0]!.init.body as string)).toMatchObject({
+        amount: 180000,
+        notes: { refundId: 'rf_000001' },
+      });
+      expect((calls[0]!.init.headers as Record<string, string>)['x-refund-idempotency']).toBe(
+        'rf_000001',
+      );
+      expect(
+        await providerWith(200, { id: 'rfnd_2', status: 'pending' }).refund(refundReq),
+      ).toMatchObject({ status: 'pending' });
+    });
+
+    it('maps errors like charges: 5xx/429/network retryable, 4xx final', async () => {
+      await expect(providerWith(502, {}).refund(refundReq)).rejects.toBeInstanceOf(
+        ProviderUnavailableError,
+      );
+      await expect(providerWith(400, {}).refund(refundReq)).rejects.toBeInstanceOf(
+        ProviderRejectedError,
+      );
+    });
+
+    it('a signed refund.processed webhook names our refund', () => {
+      const raw = JSON.stringify({
+        event: 'refund.processed',
+        payload: { refund: { entity: { id: 'rfnd_1', notes: { refundId: 'rf_000001' } } } },
+      });
+      const p = new RazorpayTestProvider({ ...base, keyId: 'rzp_test_k' });
+      const headers = {
+        'x-razorpay-signature': hmacHex('whsec', raw),
+        'x-razorpay-event-id': 'evt_rf',
+      };
+      expect(p.verifyWebhook(Buffer.from(raw), headers)).toEqual({
+        kind: 'refund',
+        providerEventId: 'evt_rf',
+        refundId: 'rf_000001',
+        providerRefundRef: 'rfnd_1',
+      });
+      expect(() =>
+        p.verifyWebhook(Buffer.from(raw), { ...headers, 'x-razorpay-signature': 'x' }),
+      ).toThrow(InvalidSignatureError);
+    });
+  });
+
   describe('webhooks', () => {
     const p = new RazorpayTestProvider({ ...base, keyId: 'rzp_test_k' });
     const body = (event: string) =>
@@ -199,10 +271,12 @@ describe('RazorpayTestProvider', () => {
       );
       const { raw, headers } = signed(body('payment.captured'));
       expect(p.verifyWebhook(raw, headers)).toMatchObject({
+        kind: 'payment',
         providerEventId: 'evt_1',
         paymentId: 'pay_000001',
         outcome: 'succeeded',
         providerRef: 'order_ABC',
+        providerPaymentId: 'pay_rzp1',
         amountMinor: 360000,
       });
     });
@@ -210,7 +284,7 @@ describe('RazorpayTestProvider', () => {
     it('maps events: captured/order.paid succeed, payment.failed fails with the reason', () => {
       for (const ev of ['payment.captured', 'order.paid']) {
         const { raw, headers } = signed(body(ev));
-        expect(p.verifyWebhook(raw, headers)!.outcome).toBe('succeeded');
+        expect(p.verifyWebhook(raw, headers)).toMatchObject({ outcome: 'succeeded' });
       }
       const { raw, headers } = signed(body('payment.failed'));
       expect(p.verifyWebhook(raw, headers)).toMatchObject({
@@ -220,7 +294,7 @@ describe('RazorpayTestProvider', () => {
     });
 
     it('ignores unrelated events, rejects bad signatures and missing ids', () => {
-      const other = signed(body('refund.processed'));
+      const other = signed(body('payment.authorized'));
       expect(p.verifyWebhook(other.raw, other.headers)).toBeNull();
       const good = signed(body('payment.captured'));
       expect(() =>

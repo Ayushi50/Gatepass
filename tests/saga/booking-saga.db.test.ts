@@ -173,7 +173,7 @@ beforeEach(async () => {
       },
     }),
   );
-  const payment = paymentHandler(pool('payment'));
+  const payment = paymentHandler(pool('payment'), provider);
   broker.subscribe(
     PAYMENT_TOPICS,
     createMessageHandler({ groupId: 'payment', handle: (e) => payment(e), dlq, retry: FAST }),

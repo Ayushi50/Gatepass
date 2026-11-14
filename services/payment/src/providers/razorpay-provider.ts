@@ -8,6 +8,8 @@ import {
   type ChargeResult,
   type PaymentProvider,
   type ProviderWebhook,
+  type RefundRequest,
+  type RefundResult,
 } from './provider';
 
 export interface RazorpayOptions {
@@ -21,6 +23,7 @@ export interface RazorpayOptions {
 interface RazorpayWebhookBody {
   event?: string;
   payload?: {
+    refund?: { entity?: { id?: string; notes?: Record<string, string> | unknown[] } };
     payment?: {
       entity?: {
         id?: string;
@@ -91,6 +94,43 @@ export class RazorpayTestProvider implements PaymentProvider {
     return { providerRef: order.id };
   }
 
+  async refund(req: RefundRequest): Promise<RefundResult> {
+    let res: Response;
+    try {
+      res = await this.fetchImpl(
+        `${this.baseUrl}/v1/payments/${encodeURIComponent(req.providerPaymentId)}/refund`,
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Basic ${Buffer.from(`${this.opts.keyId}:${this.opts.keySecret}`).toString('base64')}`,
+            // Razorpay's refund API takes an idempotency key (per its docs; not verified live), so
+            // retrying after a timeout cannot refund twice. The key is our refund id.
+            'x-refund-idempotency': req.refundId,
+          },
+          body: JSON.stringify({
+            amount: req.amountMinor,
+            receipt: req.refundId,
+            notes: { refundId: req.refundId, paymentId: req.paymentId },
+          }),
+          signal: AbortSignal.timeout(8000),
+        },
+      );
+    } catch (err) {
+      throw new ProviderUnavailableError(`razorpay unreachable: ${(err as Error).message}`);
+    }
+    if (res.status >= 500 || res.status === 429) {
+      throw new ProviderUnavailableError(`razorpay error ${res.status}`);
+    }
+    if (!res.ok) throw new ProviderRejectedError(`razorpay rejected the refund (${res.status})`);
+    const refund = (await res.json()) as { id?: string; status?: string };
+    if (!refund.id) throw new ProviderUnavailableError('razorpay returned no refund id');
+    return {
+      providerRefundRef: refund.id,
+      status: refund.status === 'processed' ? 'completed' : 'pending',
+    };
+  }
+
   verifyWebhook(
     rawBody: Buffer,
     headers: Record<string, string | undefined>,
@@ -104,6 +144,20 @@ export class RazorpayTestProvider implements PaymentProvider {
       body = JSON.parse(rawBody.toString('utf8'));
     } catch {
       throw new InvalidSignatureError('unparseable webhook body');
+    }
+    if (body.event === 'refund.processed') {
+      const entity = body.payload?.refund?.entity;
+      const notes = entity?.notes && !Array.isArray(entity.notes) ? entity.notes : {};
+      const eventId = headers['x-razorpay-event-id'];
+      if (!notes.refundId || !eventId) {
+        throw new InvalidSignatureError('webhook missing refundId note or event id');
+      }
+      return {
+        kind: 'refund',
+        providerEventId: eventId,
+        refundId: notes.refundId,
+        providerRefundRef: entity?.id,
+      };
     }
     const outcome =
       body.event === 'payment.captured' || body.event === 'order.paid'
@@ -121,10 +175,12 @@ export class RazorpayTestProvider implements PaymentProvider {
       throw new InvalidSignatureError('webhook missing paymentId note or event id');
     }
     return {
+      kind: 'payment',
       providerEventId: eventId,
       paymentId,
       outcome,
       providerRef: entity?.order_id ?? entity?.id,
+      providerPaymentId: entity?.id,
       reason: outcome === 'failed' ? (entity?.error_description ?? 'payment_failed') : undefined,
       amountMinor: entity?.amount,
     };

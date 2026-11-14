@@ -59,7 +59,7 @@ async function main(): Promise<void> {
     onError: (e) => console.error('[payment] outbox relay:', (e as Error).message),
   }).start();
 
-  const handle = paymentHandler(pool);
+  const handle = paymentHandler(pool, provider);
   await new KafkaEventConsumer({
     kafka,
     groupId: CONSUMER_GROUP,

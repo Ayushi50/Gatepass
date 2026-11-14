@@ -7,6 +7,8 @@ import {
   type ChargeResult,
   type PaymentProvider,
   type ProviderWebhook,
+  type RefundRequest,
+  type RefundResult,
 } from './provider';
 
 export const FAKE_SIGNATURE_HEADER = 'x-fake-signature';
@@ -48,8 +50,14 @@ export class FakeProvider implements PaymentProvider {
   calls = 0;
   /** Distinct charges actually created (by idempotency key): money-moving events. */
   readonly charges = new Map<string, FakeCharge>();
-  /** When set, createCharge throws this (simulates a timeout or outage). */
+  /** When set, createCharge / refund throw this (simulates a timeout or outage). */
   failWith: Error | undefined;
+  /** `sync`: refunds complete at once. `async`: they stay pending until a refund webhook. */
+  refundMode: 'sync' | 'async' = 'sync';
+  /** Number of refund calls, including repeats. */
+  refundCalls = 0;
+  /** Distinct refunds actually created (by refund id): money-moving events. */
+  readonly refunds = new Map<string, RefundRequest & { providerRefundRef: string }>();
   private eventCounter = 0;
 
   constructor(private readonly opts: FakeProviderOptions) {
@@ -79,6 +87,34 @@ export class FakeProvider implements PaymentProvider {
       }
     }
     return { providerRef: charge.providerRef };
+  }
+
+  async refund(req: RefundRequest): Promise<RefundResult> {
+    this.refundCalls++;
+    if (this.failWith) throw this.failWith;
+    let r = this.refunds.get(req.refundId);
+    if (!r) {
+      r = { ...req, providerRefundRef: `fake_rf_${this.refunds.size + 1}` };
+      this.refunds.set(req.refundId, r);
+    }
+    return {
+      providerRefundRef: r.providerRefundRef,
+      status: this.refundMode === 'sync' ? 'completed' : 'pending',
+    };
+  }
+
+  /** The signed webhook with which the provider reports a pending refund as processed. */
+  buildRefundWebhook(
+    refundId: string,
+    opts: { eventId?: string } = {},
+  ): { body: string; headers: Record<string, string> } {
+    const body = JSON.stringify({
+      id: opts.eventId ?? `evt_${++this.eventCounter}_rf_${refundId.slice(-6)}`,
+      type: 'refund.processed',
+      refundId,
+      providerRefundRef: this.refunds.get(refundId)?.providerRefundRef,
+    });
+    return { body, headers: { [FAKE_SIGNATURE_HEADER]: hmacHex(this.opts.webhookSecret, body) } };
   }
 
   static outcomeFor(token: string): 'succeeded' | 'failed' {
@@ -114,6 +150,8 @@ export class FakeProvider implements PaymentProvider {
     let ev: {
       id?: string;
       type?: string;
+      refundId?: string;
+      providerRefundRef?: string;
       paymentId?: string;
       providerRef?: string;
       amountMinor?: number;
@@ -124,11 +162,22 @@ export class FakeProvider implements PaymentProvider {
     } catch {
       throw new InvalidSignatureError('unparseable webhook body');
     }
+    if (ev.type === 'refund.processed') {
+      if (!ev.id || !ev.refundId) throw new InvalidSignatureError('webhook missing id or refundId');
+      return {
+        kind: 'refund',
+        providerEventId: ev.id,
+        refundId: ev.refundId,
+        providerRefundRef: ev.providerRefundRef,
+      };
+    }
     if (ev.type !== 'payment.succeeded' && ev.type !== 'payment.failed') return null;
     if (!ev.id || !ev.paymentId) throw new InvalidSignatureError('webhook missing id or paymentId');
     return {
+      kind: 'payment',
       providerEventId: ev.id,
       paymentId: ev.paymentId,
+      providerPaymentId: ev.providerRef ? `fake_pay_${ev.providerRef}` : undefined,
       outcome: ev.type === 'payment.succeeded' ? 'succeeded' : 'failed',
       providerRef: ev.providerRef,
       reason: ev.reason,

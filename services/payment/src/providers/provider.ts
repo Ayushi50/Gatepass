@@ -19,17 +19,46 @@ export interface ChargeResult {
   providerRef: string;
 }
 
-export interface ProviderWebhook {
+export interface RefundRequest {
+  /** Our refund id; also the provider-side idempotency key, so a retry can never refund twice. */
+  refundId: string;
+  paymentId: string;
+  /** The provider's id for the original payment (what it needs to refund it). */
+  providerPaymentId: string;
+  amountMinor: number;
+  currency: string;
+}
+
+export interface RefundResult {
+  providerRefundRef: string;
+  /** `pending` refunds are completed later by a refund webhook. */
+  status: 'completed' | 'pending';
+}
+
+export interface PaymentWebhook {
+  kind: 'payment';
   /** The provider's unique id for this delivery, used to ignore duplicates. */
   providerEventId: string;
   /** Our payment id, carried in the provider's metadata. */
   paymentId: string;
   outcome: 'succeeded' | 'failed';
   providerRef?: string;
+  /** The provider's own payment id, kept so the payment can be refunded later. */
+  providerPaymentId?: string;
   reason?: string;
   /** If the provider reports an amount, it must match what we asked for. */
   amountMinor?: number;
 }
+
+/** A pending refund has been completed by the provider. */
+export interface RefundWebhook {
+  kind: 'refund';
+  providerEventId: string;
+  refundId: string;
+  providerRefundRef?: string;
+}
+
+export type ProviderWebhook = PaymentWebhook | RefundWebhook;
 
 /** The provider definitively refused the charge (bad token, declined at creation). Final. */
 export class ProviderRejectedError extends Error {}
@@ -41,6 +70,8 @@ export class InvalidSignatureError extends Error {}
 export interface PaymentProvider {
   readonly name: string;
   createCharge(req: ChargeRequest): Promise<ChargeResult>;
+  /** Refunds (part of) a payment. Idempotent per `refundId`. */
+  refund(req: RefundRequest): Promise<RefundResult>;
   /**
    * Verifies the signature over the RAW body and parses it. Throws InvalidSignatureError if it
    * is not authentic. Returns null for authentic events we do not care about.

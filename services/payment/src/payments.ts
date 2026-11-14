@@ -10,6 +10,7 @@ import {
   type PaymentMethod,
   type PaymentProvider,
 } from './providers/provider';
+import { handleRefundWebhook } from './refunds';
 import type { PaymentState } from './state';
 
 export const PRODUCER = 'payment';
@@ -236,7 +237,7 @@ async function applyOutcome(
   tx: Queryable,
   p: PaymentRow,
   outcome: 'succeeded' | 'failed',
-  info: { providerRef?: string; reason?: string },
+  info: { providerRef?: string; providerPaymentId?: string; reason?: string },
 ): Promise<OutcomeResult> {
   const target: PaymentState = outcome === 'succeeded' ? 'SUCCEEDED' : 'FAILED';
   if (p.state === target) return 'already';
@@ -311,6 +312,7 @@ export async function handleWebhook(
 ): Promise<WebhookResult> {
   const event = deps.provider.verifyWebhook(rawBody, headers);
   if (!event) return 'ignored';
+  if (event.kind === 'refund') return handleRefundWebhook(deps, event);
 
   return withTransaction(deps.pool, async (tx) => {
     const recorded = await tx.query(
@@ -336,6 +338,7 @@ export async function handleWebhook(
     return finish(
       await applyOutcome(tx, payment, event.outcome, {
         providerRef: event.providerRef,
+        providerPaymentId: event.providerPaymentId,
         reason: event.reason,
       }),
     );
