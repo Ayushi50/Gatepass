@@ -11,8 +11,11 @@ import {
   QrKeyRing,
   checkIn,
   listTickets,
+  TicketNotFoundError,
   onBookingConfirmed,
   onEventPublished,
+  onRefundCompleted,
+  requestRefund,
   ticketsForBooking,
 } from '../src';
 import { TicketModule } from '../src/http/ticket.module';
@@ -253,5 +256,199 @@ describe('HTTP', () => {
       .expect(404);
     expect(bad.body).toMatchObject({ status: 'invalid' });
     await request(app.getHttpServer()).post('/checkin').send({ staffId: 's1' }).expect(400);
+  });
+});
+
+describe('refund request (locks the ticket, publishes refund.requested)', () => {
+  const refundEvents = async (bookingId: string) =>
+    (
+      await pool.query(
+        "SELECT payload FROM outbox WHERE aggregate_id=$1 AND event_type='refund.requested'",
+        [bookingId],
+      )
+    ).rows.map((r) => decodeEnvelope(r.payload));
+  const statusOf = async (id: string) =>
+    (await pool.query('SELECT status FROM tickets WHERE id=$1', [id])).rows[0].status;
+
+  it('locks a valid ticket and publishes refund.requested with the price, seat and organizer', async () => {
+    const { bookingId, tickets } = await issue(['A1'], 'rita');
+    const out = await requestRefund(pool, tickets[0]!.ticketId, 'rita');
+    expect(out.status).toBe('refund_requested');
+    expect(await statusOf(tickets[0]!.ticketId)).toBe('refund_requested');
+
+    const [ev] = await refundEvents(bookingId);
+    expect(ev!.correlationId).toBe(bookingId);
+    if (ev!.payload.case !== 'refundRequested') throw new Error('wrong payload');
+    expect(ev!.payload.value).toMatchObject({
+      refundId: out.refundId,
+      bookingId,
+      ticketId: tickets[0]!.ticketId,
+      userId: 'rita',
+      amountMinor: 100000n,
+      currency: 'INR',
+      eventId: 'neon-nights',
+      seatId: 'A1',
+      organizerId: 'o',
+    });
+    expect(
+      (await listTickets(pool, keys, 'rita')).find((t) => t.id === tickets[0]!.ticketId)!.status,
+    ).toBe('refund_requested');
+  });
+
+  it('only the owner can ask (404 otherwise), and unknown tickets are 404', async () => {
+    const { tickets } = await issue(['A2'], 'owner');
+    await expect(requestRefund(pool, tickets[0]!.ticketId, 'thief')).rejects.toBeInstanceOf(
+      TicketNotFoundError,
+    );
+    await expect(requestRefund(pool, 'nope', 'owner')).rejects.toBeInstanceOf(TicketNotFoundError);
+    expect(await statusOf(tickets[0]!.ticketId)).toBe('valid');
+  });
+
+  it('a used ticket cannot be refunded; a second request is refused and publishes nothing more', async () => {
+    const used = await issue(['A3'], 'u1');
+    await checkIn(pool, keys, used.tickets[0]!.qrToken, 'gate');
+    await expect(requestRefund(pool, used.tickets[0]!.ticketId, 'u1')).rejects.toMatchObject({
+      code: 'used',
+    });
+
+    const dup = await issue(['A4'], 'u2');
+    await requestRefund(pool, dup.tickets[0]!.ticketId, 'u2');
+    await expect(requestRefund(pool, dup.tickets[0]!.ticketId, 'u2')).rejects.toMatchObject({
+      code: 'refund_already_requested',
+    });
+    expect(await refundEvents(dup.bookingId)).toHaveLength(1);
+  });
+
+  it('concurrent requests for one ticket publish exactly one refund.requested', async () => {
+    const { bookingId, tickets } = await issue(['A5'], 'u3');
+    const results = await Promise.allSettled(
+      Array.from({ length: 10 }, () => requestRefund(pool, tickets[0]!.ticketId, 'u3')),
+    );
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(await refundEvents(bookingId)).toHaveLength(1);
+  });
+
+  it('REFUND vs DOOR: a request racing a scan has exactly one winner, 60 times over', async () => {
+    let admitted = 0;
+    let locked = 0;
+    for (let i = 0; i < 60; i++) {
+      const { tickets } = await issue(['B1'], 'racer');
+      const [scan, refund] = await Promise.allSettled([
+        checkIn(pool, keys, tickets[0]!.qrToken, 'gate'),
+        requestRefund(pool, tickets[0]!.ticketId, 'racer'),
+      ]);
+      const scanned = scan.status === 'fulfilled' && scan.value.status === 'valid';
+      const refunded = refund.status === 'fulfilled';
+      expect(scanned !== refunded).toBe(true); // exactly one of the two succeeded
+      expect(await statusOf(tickets[0]!.ticketId)).toBe(scanned ? 'used' : 'refund_requested');
+      if (scanned) admitted++;
+      else locked++;
+    }
+    console.log(
+      `refund-vs-door outcomes over 60 runs: admitted=${admitted} refund-locked=${locked}`,
+    );
+    expect(admitted + locked).toBe(60);
+  });
+
+  it('a ticket with a refund pending cannot be scanned at the door', async () => {
+    const { tickets } = await issue(['C3'], 'u4');
+    await requestRefund(pool, tickets[0]!.ticketId, 'u4');
+    expect(await checkIn(pool, keys, tickets[0]!.qrToken, 'gate')).toEqual({ status: 'invalid' });
+  });
+});
+
+describe('refund.completed voids the ticket', () => {
+  const completed = (bookingId: string, ticketId: string, seatId: string, automatic = false) =>
+    buildEnvelope({
+      eventType: 'refund.completed',
+      correlationId: bookingId,
+      producer: 'payment',
+      payload: {
+        refundId: `r-${ticketId}`,
+        bookingId,
+        paymentId: 'p',
+        amountMinor: 100000n,
+        currency: 'INR',
+        eventId: 'neon-nights',
+        ticketId: automatic ? '' : ticketId,
+        seatId: automatic ? '' : seatId,
+        userId: 'x',
+        automatic,
+      },
+    });
+  const voidedEvents = async (bookingId: string) =>
+    (
+      await pool.query(
+        "SELECT payload FROM outbox WHERE aggregate_id=$1 AND event_type='ticket.voided'",
+        [bookingId],
+      )
+    ).rows.map((r) => decodeEnvelope(r.payload));
+
+  it('voids it permanently, announces ticket.voided once, and the QR is dead', async () => {
+    const { bookingId, tickets } = await issue(['C4'], 'v1');
+    await requestRefund(pool, tickets[0]!.ticketId, 'v1');
+    const ev = completed(bookingId, tickets[0]!.ticketId, 'C4');
+    await onRefundCompleted(pool, ev);
+    await onRefundCompleted(pool, ev); // duplicate delivery
+
+    expect(
+      (await pool.query('SELECT status FROM tickets WHERE id=$1', [tickets[0]!.ticketId])).rows[0]
+        .status,
+    ).toBe('void');
+    const voided = await voidedEvents(bookingId);
+    expect(voided).toHaveLength(1);
+    expect(voided[0]!.causationId).toBe(ev.eventId);
+    if (voided[0]!.payload.case !== 'ticketVoided') throw new Error('wrong payload');
+    expect(voided[0]!.payload.value).toMatchObject({
+      ticketId: tickets[0]!.ticketId,
+      seatId: 'C4',
+      reason: 'refunded',
+    });
+    expect(await checkIn(pool, keys, tickets[0]!.qrToken, 'gate')).toEqual({ status: 'invalid' });
+    await expect(requestRefund(pool, tickets[0]!.ticketId, 'v1')).rejects.toMatchObject({
+      code: 'void',
+    });
+  });
+
+  it('voids only the refunded ticket of a booking; the other stays valid', async () => {
+    const { bookingId, tickets } = await issue(['C5', 'C6'], 'v2');
+    await requestRefund(pool, tickets[0]!.ticketId, 'v2');
+    await onRefundCompleted(pool, completed(bookingId, tickets[0]!.ticketId, 'C5'));
+    expect(await checkIn(pool, keys, tickets[1]!.qrToken, 'gate')).toMatchObject({
+      status: 'valid',
+    });
+  });
+
+  it('an automatic refund (no ticket) or an unrequested ticket changes nothing', async () => {
+    const { bookingId, tickets } = await issue(['C7'], 'v3');
+    await onRefundCompleted(pool, completed(bookingId, '', '', true));
+    await onRefundCompleted(pool, completed(bookingId, tickets[0]!.ticketId, 'C7')); // never requested
+    expect(
+      (await pool.query('SELECT status FROM tickets WHERE id=$1', [tickets[0]!.ticketId])).rows[0]
+        .status,
+    ).toBe('valid');
+    expect(await voidedEvents(bookingId)).toHaveLength(0);
+  });
+});
+
+describe('HTTP refund', () => {
+  it('POST /tickets/:id/refund answers 202, 404 for a stranger, 409 for a repeat, 400 without a user', async () => {
+    const { tickets } = await issue(['C8'], 'h1');
+    const id = tickets[0]!.ticketId;
+    await request(app.getHttpServer()).post(`/tickets/${id}/refund`).send({}).expect(400);
+    await request(app.getHttpServer())
+      .post(`/tickets/${id}/refund`)
+      .send({ userId: 'stranger' })
+      .expect(404);
+    const ok = await request(app.getHttpServer())
+      .post(`/tickets/${id}/refund`)
+      .send({ userId: 'h1' })
+      .expect(202);
+    expect(ok.body).toEqual({ refundId: expect.any(String), status: 'refund_requested' });
+    const again = await request(app.getHttpServer())
+      .post(`/tickets/${id}/refund`)
+      .send({ userId: 'h1' })
+      .expect(409);
+    expect(again.body).toMatchObject({ code: 'refund_already_requested' });
   });
 });

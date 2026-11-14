@@ -1,4 +1,7 @@
 import type { Pool } from 'pg';
+import { v7 as uuidv7 } from 'uuid';
+import { buildEnvelope } from '@gatepass/events';
+import { appendToOutbox, withTransaction } from '@gatepass/outbox';
 import { InvalidQrTokenError, type QrKeyRing } from './qr-token';
 
 export interface TicketView {
@@ -13,8 +16,10 @@ export interface TicketView {
   seat: string;
   tier: string;
   qrToken: string;
-  status: 'valid' | 'used';
+  status: TicketStatus;
 }
+
+export type TicketStatus = 'valid' | 'used' | 'refund_requested' | 'void';
 
 /** The user's tickets, newest first. Only that user's: the id comes from the verified token. */
 export async function listTickets(
@@ -33,7 +38,7 @@ export async function listTickets(
     row_label: string;
     number: number;
     tier: string;
-    status: 'valid' | 'used';
+    status: TicketStatus;
   }>(
     `SELECT t.id, t.code, t.booking_id, t.event_id, e.title, e.starts_at, e.venue,
             t.row_label, t.number, t.tier, t.status
@@ -114,4 +119,88 @@ export async function checkIn(
   const t = existing.rows[0];
   if (t?.status === 'used' && t.used_at) return { status: 'used', usedAt: t.used_at.toISOString() };
   return { status: 'invalid' };
+}
+
+export class TicketNotFoundError extends Error {}
+export class RefundNotAllowedError extends Error {
+  constructor(
+    public readonly code: 'used' | 'refund_already_requested' | 'void' | 'no_price',
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * The owner asks for a refund of one ticket. In ONE transaction the ticket is locked
+ * (`valid -> refund_requested`) and refund.requested is published, so the ticket can no longer be
+ * scanned and the request cannot be lost. The lock is a conditional UPDATE, the same kind of
+ * statement as check-in, so a refund request racing a door scan has exactly one winner.
+ */
+export async function requestRefund(
+  pool: Pool,
+  ticketId: string,
+  userId: string,
+): Promise<{ refundId: string; status: 'refund_requested' }> {
+  return withTransaction(pool, async (tx) => {
+    const refundId = uuidv7();
+    const locked = await tx.query<{
+      booking_id: string;
+      event_id: string;
+      seat_id: string;
+    }>(
+      `UPDATE tickets SET status = 'refund_requested', refund_id = $3
+        WHERE id = $1 AND user_id = $2 AND status = 'valid'
+    RETURNING booking_id, event_id, seat_id`,
+      [ticketId, userId, refundId],
+    );
+    const t = locked.rows[0];
+    if (!t) {
+      const why = await tx.query<{ status: TicketStatus }>(
+        'SELECT status FROM tickets WHERE id = $1 AND user_id = $2',
+        [ticketId, userId],
+      );
+      const status = why.rows[0]?.status;
+      if (!status) throw new TicketNotFoundError('ticket not found');
+      if (status === 'used')
+        throw new RefundNotAllowedError('used', 'a ticket that was used cannot be refunded');
+      if (status === 'void')
+        throw new RefundNotAllowedError('void', 'this ticket was already refunded');
+      throw new RefundNotAllowedError('refund_already_requested', 'a refund was already requested');
+    }
+
+    const info = await tx.query<{ organizer_id: string; currency: string; price_minor: string }>(
+      `SELECT e.organizer_id, e.currency, s.price_minor
+         FROM events e JOIN event_seats s ON s.event_id = e.event_id AND s.seat_id = $2
+        WHERE e.event_id = $1`,
+      [t.event_id, t.seat_id],
+    );
+    const i = info.rows[0];
+    if (!i || Number(i.price_minor) <= 0) {
+      throw new RefundNotAllowedError('no_price', 'the price of this ticket is unknown'); // rolls the lock back
+    }
+
+    await appendToOutbox(
+      tx,
+      buildEnvelope({
+        eventType: 'refund.requested',
+        correlationId: t.booking_id,
+        producer: 'ticket',
+        payload: {
+          refundId,
+          bookingId: t.booking_id,
+          ticketId,
+          userId,
+          amountMinor: BigInt(i.price_minor),
+          currency: i.currency,
+          reason: '',
+          eventId: t.event_id,
+          seatId: t.seat_id,
+          organizerId: i.organizer_id,
+        },
+      }),
+      t.booking_id,
+    );
+    return { refundId, status: 'refund_requested' as const };
+  });
 }

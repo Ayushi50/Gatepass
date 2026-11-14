@@ -6,7 +6,7 @@ import type { QrKeyRing } from './qr-token';
 
 export const PRODUCER = 'ticket';
 export const CONSUMER_GROUP = 'ticket';
-export const CONSUMED_TOPICS = ['event.published', 'booking.confirmed'];
+export const CONSUMED_TOPICS = ['event.published', 'booking.confirmed', 'refund.completed'];
 
 /** event.published -> remember what a ticket for this show must say. */
 export async function onEventPublished(pool: Pool, env: EventEnvelope): Promise<void> {
@@ -14,14 +14,21 @@ export async function onEventPublished(pool: Pool, env: EventEnvelope): Promise<
   const p = env.payload.value;
   await processOnce(pool, CONSUMER_GROUP, env, async (tx) => {
     await tx.query(
-      `INSERT INTO events (event_id, title, venue, starts_at) VALUES ($1,$2,$3,$4)
-       ON CONFLICT (event_id) DO NOTHING`,
-      [p.eventId, p.title, p.venue, new Date(Number(p.startsAtMs))],
+      `INSERT INTO events (event_id, title, venue, starts_at, organizer_id, currency)
+       VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (event_id) DO NOTHING`,
+      [
+        p.eventId,
+        p.title,
+        p.venue,
+        new Date(Number(p.startsAtMs)),
+        p.organizerId,
+        p.currency || 'INR',
+      ],
     );
     await tx.query(
-      `INSERT INTO event_seats (event_id, seat_id, row_label, number, tier)
-       SELECT $1, u.a, u.b, u.c, u.d
-         FROM unnest($2::text[], $3::text[], $4::int[], $5::text[]) AS u(a, b, c, d)
+      `INSERT INTO event_seats (event_id, seat_id, row_label, number, tier, price_minor)
+       SELECT $1, u.a, u.b, u.c, u.d, u.e
+         FROM unnest($2::text[], $3::text[], $4::int[], $5::text[], $6::bigint[]) AS u(a, b, c, d, e)
        ON CONFLICT (event_id, seat_id) DO NOTHING`,
       [
         p.eventId,
@@ -29,6 +36,7 @@ export async function onEventPublished(pool: Pool, env: EventEnvelope): Promise<
         p.seats.map((s) => s.row),
         p.seats.map((s) => s.number),
         p.seats.map((s) => s.tier),
+        p.seats.map((s) => s.priceMinor),
       ],
     );
   });
@@ -108,9 +116,45 @@ export async function onBookingConfirmed(
   });
 }
 
+/**
+ * refund.completed -> the refunded ticket is voided for good and ticket.voided is published.
+ * An automatic refund names no ticket (none was issued), so it changes nothing here.
+ */
+export async function onRefundCompleted(pool: Pool, env: EventEnvelope): Promise<void> {
+  if (env.payload.case !== 'refundCompleted') return;
+  const r = env.payload.value;
+  if (!r.ticketId) return;
+  await processOnce(pool, CONSUMER_GROUP, env, async (tx) => {
+    const voided = await tx.query<{ seat_id: string }>(
+      `UPDATE tickets SET status = 'void'
+        WHERE id = $1 AND status = 'refund_requested' RETURNING seat_id`,
+      [r.ticketId],
+    );
+    if (voided.rowCount === 0) return; // already void, or not a ticket of ours
+    await appendToOutbox(
+      tx,
+      buildEnvelope({
+        eventType: 'ticket.voided',
+        correlationId: env.correlationId,
+        causationId: env.eventId,
+        producer: PRODUCER,
+        payload: {
+          ticketId: r.ticketId,
+          bookingId: r.bookingId,
+          eventId: r.eventId,
+          seatId: voided.rows[0]!.seat_id,
+          reason: 'refunded',
+        },
+      }),
+      r.bookingId,
+    );
+  });
+}
+
 export function ticketHandler(pool: Pool, keys: QrKeyRing) {
   return async (env: EventEnvelope): Promise<void> => {
     if (env.eventType === 'event.published') return onEventPublished(pool, env);
     if (env.eventType === 'booking.confirmed') return onBookingConfirmed(pool, keys, env);
+    if (env.eventType === 'refund.completed') return onRefundCompleted(pool, env);
   };
 }

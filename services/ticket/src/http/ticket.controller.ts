@@ -13,7 +13,14 @@ import {
 } from '@nestjs/common';
 import type { Pool } from 'pg';
 import type { QrKeyRing } from '../qr-token';
-import { checkIn, listTickets, ticketsForBooking } from '../tickets';
+import {
+  RefundNotAllowedError,
+  TicketNotFoundError,
+  checkIn,
+  listTickets,
+  requestRefund,
+  ticketsForBooking,
+} from '../tickets';
 
 export const POOL = Symbol('POOL');
 export const KEYS = Symbol('KEYS');
@@ -40,6 +47,22 @@ export class TicketController {
   @Get('bookings/:id/tickets')
   forBooking(@Param('id') id: string) {
     return ticketsForBooking(this.pool, id);
+  }
+
+  /** The owner asks for a refund. 404 if it is not theirs, 409 if it cannot be refunded any more. */
+  @Post('tickets/:id/refund')
+  @HttpCode(202)
+  async refund(@Param('id') id: string, @Body() body: { userId?: string }) {
+    if (!body?.userId) throw new BadRequestException('userId is required');
+    try {
+      return await requestRefund(this.pool, id, body.userId);
+    } catch (err) {
+      if (err instanceof TicketNotFoundError) throw new NotFoundException(err.message);
+      if (err instanceof RefundNotAllowedError) {
+        throw new ConflictException({ message: err.message, code: err.code });
+      }
+      throw err;
+    }
   }
 
   /** 200 valid, 409 used (with usedAt), 404 invalid. Safe to call concurrently from many gates. */
