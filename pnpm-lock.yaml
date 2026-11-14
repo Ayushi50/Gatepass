@@ -676,6 +676,9 @@ importers:
 
   tests/saga:
     devDependencies:
+      '@gatepass/analytics':
+        specifier: workspace:*
+        version: link:../../services/analytics
       '@gatepass/booking':
         specifier: workspace:*
         version: link:../../services/booking
@@ -691,6 +694,9 @@ importers:
       '@gatepass/messaging':
         specifier: workspace:*
         version: link:../../libs/messaging
+      '@gatepass/notification':
+        specifier: workspace:*
+        version: link:../../services/notification
       '@gatepass/outbox':
         specifier: workspace:*
         version: link:../../libs/outbox
@@ -703,6 +709,9 @@ importers:
       '@gatepass/testing':
         specifier: workspace:*
         version: link:../../libs/testing
+      '@gatepass/ticket':
+        specifier: workspace:*
+        version: link:../../services/ticket
       '@types/pg':
         specifier: ^8.23.1
         version: 8.23.1

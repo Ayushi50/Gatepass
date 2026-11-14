@@ -21,6 +21,23 @@ import {
   startPayment,
   type PaymentDeps,
 } from '@gatepass/payment';
+import {
+  QrKeyRing,
+  checkIn,
+  listTickets,
+  ticketHandler,
+  CONSUMED_TOPICS as TICKET_TOPICS,
+} from '@gatepass/ticket';
+import {
+  notificationHandler,
+  CONSUMED_TOPICS as NOTIFICATION_TOPICS,
+} from '@gatepass/notification';
+import {
+  analyticsHandler,
+  getActivity,
+  getSummary,
+  CONSUMED_TOPICS as ANALYTICS_TOPICS,
+} from '@gatepass/analytics';
 import { migrate } from '@gatepass/db';
 import { decodeEnvelope, type EventEnvelope } from '@gatepass/events';
 import { createMessageHandler, type DeadLetterPublisher } from '@gatepass/messaging';
@@ -36,7 +53,16 @@ jest.setTimeout(300_000);
 
 const root = join(__dirname, '..', '..', 'services');
 const FAST = { maxAttempts: 4, baseDelayMs: 1, maxDelayMs: 2 };
-const SERVICES = ['catalog', 'inventory', 'booking', 'payment'] as const;
+const SERVICES = [
+  'catalog',
+  'inventory',
+  'booking',
+  'payment',
+  'ticket',
+  'notification',
+  'analytics',
+] as const;
+const keys = new QrKeyRing('k1:' + 's'.repeat(40));
 type Service = (typeof SERVICES)[number];
 
 class Dlq implements DeadLetterPublisher {
@@ -52,7 +78,7 @@ let broker: InMemoryBroker;
 let relays: OutboxRelay[];
 let dlq: Dlq;
 let provider: FakeProvider;
-let failNext: { 'seats.held': number; 'payment.succeeded': number };
+let failNext: { 'seats.held': number; 'payment.succeeded': number; 'booking.confirmed': number };
 
 const pool = (n: Service): Pool => dbs[n].pool;
 const payDeps = (): PaymentDeps => ({ pool: pool('payment'), provider });
@@ -81,11 +107,17 @@ beforeAll(async () => {
     inventory: await server.createDatabase(10),
     booking: await server.createDatabase(),
     payment: await server.createDatabase(20),
+    ticket: await server.createDatabase(60),
+    notification: await server.createDatabase(),
+    analytics: await server.createDatabase(),
   };
   await migrate(pool('catalog'), join(root, 'catalog', 'migrations'));
   await migrate(pool('inventory'), join(root, 'seat-inventory', 'migrations'));
   await migrate(pool('booking'), join(root, 'booking', 'migrations'));
   await migrate(pool('payment'), join(root, 'payment', 'migrations'));
+  await migrate(pool('ticket'), join(root, 'ticket', 'migrations'));
+  await migrate(pool('notification'), join(root, 'notification', 'migrations'));
+  await migrate(pool('analytics'), join(root, 'analytics', 'migrations'));
 });
 
 afterAll(async () => {
@@ -99,11 +131,14 @@ beforeEach(async () => {
   await pool('booking').query('TRUNCATE booking_transitions, bookings');
   await pool('catalog').query('TRUNCATE seat_defs, event_tiers, events CASCADE');
   await pool('payment').query('TRUNCATE webhook_events, payments, payables CASCADE');
+  await pool('ticket').query('TRUNCATE tickets, event_seats, events CASCADE');
+  await pool('notification').query('TRUNCATE notifications RESTART IDENTITY');
+  await pool('analytics').query('TRUNCATE activity, seat_status, events CASCADE');
 
   dlq = new Dlq();
   broker = new InMemoryBroker();
   provider = new FakeProvider({ webhookSecret: 'whsec_saga_test_secret' });
-  failNext = { 'seats.held': 0, 'payment.succeeded': 0 };
+  failNext = { 'seats.held': 0, 'payment.succeeded': 0, 'booking.confirmed': 0 };
   relays = SERVICES.map((n) => new OutboxRelay({ pool: pool(n), publisher: broker, lockName: n }));
 
   const inventory = seatInventoryHandler(pool('inventory'), { holdTtlMs: 600_000 });
@@ -142,6 +177,38 @@ beforeEach(async () => {
   broker.subscribe(
     PAYMENT_TOPICS,
     createMessageHandler({ groupId: 'payment', handle: (e) => payment(e), dlq, retry: FAST }),
+  );
+
+  const ticket = ticketHandler(pool('ticket'), keys);
+  broker.subscribe(
+    TICKET_TOPICS,
+    createMessageHandler({
+      groupId: 'ticket',
+      dlq,
+      retry: FAST,
+      handle: async (e) => {
+        if (e.eventType === 'booking.confirmed' && failNext['booking.confirmed'] > 0) {
+          failNext['booking.confirmed']--;
+          throw new Error('simulated crash while issuing tickets');
+        }
+        await ticket(e);
+      },
+    }),
+  );
+  const notification = notificationHandler(pool('notification'), () => {});
+  broker.subscribe(
+    NOTIFICATION_TOPICS,
+    createMessageHandler({
+      groupId: 'notification',
+      handle: (e) => notification(e),
+      dlq,
+      retry: FAST,
+    }),
+  );
+  const analytics = analyticsHandler(pool('analytics'));
+  broker.subscribe(
+    ANALYTICS_TOPICS,
+    createMessageHandler({ groupId: 'analytics', handle: (e) => analytics(e), dlq, retry: FAST }),
   );
 
   await createEvent(pool('catalog'), {
@@ -496,5 +563,194 @@ describe('resumable saga', () => {
     broker.down = false;
     await settle();
     expect(await bookingState(b.id)).toBe('HELD');
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Phase 3: tickets, notifications, analytics and check-in
+// ---------------------------------------------------------------------------------------------
+
+const notificationRows = async () =>
+  (
+    await pool('notification').query(
+      'SELECT channel, user_id, template FROM notifications ORDER BY id',
+    )
+  ).rows;
+const ticketRows = async () =>
+  (await pool('ticket').query('SELECT seat_id, status FROM tickets ORDER BY seat_id')).rows;
+
+/** Runs a booking all the way: held, paid, webhook succeeded, everything settled. */
+async function completedBooking(seatIds: string[], userId = 'u1') {
+  const b = await heldBooking(seatIds, userId);
+  const paid = await payBooking(b.id);
+  await sendWebhook(paid.paymentId, 'succeeded');
+  await settle();
+  return b;
+}
+
+describe('FULL HAPPY PATH, END TO END', () => {
+  it('event -> hold -> pay -> sale -> confirmed -> tickets -> notifications -> dashboard -> check-in', async () => {
+    const b = await completedBooking(['A1', 'A2']);
+
+    // booking and seats
+    expect(await bookingState(b.id)).toBe('CONFIRMED');
+    expect(await seatStates()).toMatchObject({ A1: 'taken', A2: 'taken', A3: 'available' });
+
+    // the whole chain happened exactly once, in causal order, under ONE correlation id
+    const chain = [
+      'booking.requested',
+      'seats.held',
+      'payment.succeeded',
+      'seats.sold',
+      'booking.confirmed',
+      'ticket.issued',
+    ];
+    const events = chain.map((type) => {
+      const found = published(type);
+      expect(found).toHaveLength(1);
+      expect(found[0]!.correlationId).toBe(b.id);
+      return found[0]!;
+    });
+    // payment.succeeded is caused by the provider's webhook (outside the event stream), so the
+    // causal chain of events starts there: each later event names the one that triggered it
+    expect(events[2]!.causationId).toBe('');
+    for (let i = 3; i < events.length; i++)
+      expect(events[i]!.causationId).toBe(events[i - 1]!.eventId);
+    const order = broker.published.map((m) => m.topic).filter((t) => chain.includes(t));
+    expect(order).toEqual(chain);
+
+    // tickets: one signed ticket per seat, shown to their owner only
+    expect(await ticketRows()).toEqual([
+      { seat_id: 'A1', status: 'valid' },
+      { seat_id: 'A2', status: 'valid' },
+    ]);
+    const mine = await listTickets(pool('ticket'), keys, 'u1');
+    expect(mine.map((t) => [t.row + t.seat, t.tier, t.eventTitle])).toEqual([
+      ['A1', 'Front', 'Show'],
+      ['A2', 'Front', 'Show'],
+    ]);
+    expect(await listTickets(pool('ticket'), keys, 'someone-else')).toEqual([]);
+
+    // notifications: an email and an SMS for the tickets
+    expect(await notificationRows()).toEqual([
+      { channel: 'email', user_id: 'u1', template: 'tickets-ready' },
+      { channel: 'sms', user_id: 'u1', template: 'tickets-ready' },
+    ]);
+
+    // organizer dashboard: counts and live feed, scoped to the organizer
+    expect(await getSummary(pool('analytics'), 'show', 'o')).toMatchObject({
+      sold: 2,
+      held: 0,
+      total: 6,
+      left: 4,
+      tiers: [{ name: 'Front', sold: 2, total: 6 }],
+    });
+    const feed = await getActivity(pool('analytics'), 'show', 'o');
+    expect(feed.map((f) => f.type)).toEqual(
+      expect.arrayContaining([
+        'seats.held',
+        'payment.succeeded',
+        'seats.sold',
+        'booking.confirmed',
+        'ticket.issued',
+      ]),
+    );
+    expect(feed.find((f) => f.type === 'seats.sold')!.text).toBe('Row A · seats 1, 2');
+    await expect(getSummary(pool('analytics'), 'show', 'another-organizer')).rejects.toThrow(
+      'not your event',
+    );
+
+    // check-in: the QR works once at the door
+    const [first, second] = mine;
+    expect(await checkIn(pool('ticket'), keys, first!.qrToken, 'staff-1')).toEqual({
+      status: 'valid',
+      row: 'A',
+      seat: '1',
+      tier: 'Front',
+    });
+    expect(await checkIn(pool('ticket'), keys, first!.qrToken, 'staff-2')).toMatchObject({
+      status: 'used',
+    });
+    expect(await checkIn(pool('ticket'), keys, second!.qrToken, 'staff-2')).toMatchObject({
+      status: 'valid',
+    });
+
+    expect(provider.charges.size).toBe(1);
+    expect(dlq.messages).toHaveLength(0);
+  });
+
+  it('two gates scanning the same QR at the same moment: exactly one is admitted', async () => {
+    await completedBooking(['A3']);
+    const [t] = await listTickets(pool('ticket'), keys, 'u1');
+    const scans = await Promise.all(
+      Array.from({ length: 30 }, (_, i) => checkIn(pool('ticket'), keys, t!.qrToken, `gate-${i}`)),
+    );
+    expect(scans.filter((s) => s.status === 'valid')).toHaveLength(1);
+    expect(scans.filter((s) => s.status === 'used')).toHaveLength(29);
+  });
+
+  it('every event delivered twice: still one ticket per seat, one email, one SMS, one feed line each', async () => {
+    broker.deliveries = 2;
+    const b = await completedBooking(['A1', 'A2']);
+    expect(await bookingState(b.id)).toBe('CONFIRMED');
+    expect(await ticketRows()).toHaveLength(2);
+    expect(published('ticket.issued')).toHaveLength(1);
+    expect(await notificationRows()).toHaveLength(2);
+    const feed = await getActivity(pool('analytics'), 'show', 'o', 100);
+    for (const type of ['seats.sold', 'ticket.issued', 'booking.confirmed']) {
+      expect(feed.filter((f) => f.type === type)).toHaveLength(1);
+    }
+    expect(await getSummary(pool('analytics'), 'show', 'o')).toMatchObject({ sold: 2, held: 0 });
+    expect(dlq.messages).toHaveLength(0);
+  });
+
+  it('a crash while issuing tickets is retried: the buyer still gets exactly one ticket per seat', async () => {
+    failNext['booking.confirmed'] = 2;
+    const b = await completedBooking(['A4']);
+    expect(await bookingState(b.id)).toBe('CONFIRMED');
+    expect(await ticketRows()).toEqual([{ seat_id: 'A4', status: 'valid' }]);
+    expect(published('ticket.issued')).toHaveLength(1);
+    expect(dlq.messages).toHaveLength(0);
+  });
+
+  it('a broker outage after the sale loses no ticket: they are issued once the broker is back', async () => {
+    const b = await heldBooking(['A5']);
+    const paid = await payBooking(b.id);
+    await sendWebhook(paid.paymentId, 'succeeded');
+    await settle(); // sold + confirmed
+    expect(await bookingState(b.id)).toBe('CONFIRMED');
+    broker.down = true;
+    await settle(3);
+    broker.down = false;
+    await settle();
+    expect(await ticketRows()).toEqual([{ seat_id: 'A5', status: 'valid' }]);
+  });
+});
+
+describe('failure path reaches notifications and the dashboard', () => {
+  it('a declined payment emails the buyer, shows red on the feed and gives the seats back in the counts', async () => {
+    const b = await heldBooking(['A1', 'A2']);
+    expect(await getSummary(pool('analytics'), 'show', 'o')).toMatchObject({ held: 2, left: 4 });
+
+    const paid = await payBooking(b.id, { token: FAKE_TOKENS.declined });
+    await sendWebhook(paid.paymentId, 'failed', { reason: 'insufficient_funds' });
+    await settle();
+
+    expect(await bookingState(b.id)).toBe('CANCELLED');
+    expect(await ticketRows()).toEqual([]); // no ticket for a booking that was never paid
+    expect(await notificationRows()).toEqual([
+      { channel: 'email', user_id: 'u1', template: 'payment-failed' },
+    ]);
+    expect(await getSummary(pool('analytics'), 'show', 'o')).toMatchObject({
+      sold: 0,
+      held: 0,
+      left: 6,
+    });
+    const feed = await getActivity(pool('analytics'), 'show', 'o');
+    expect(feed.find((f) => f.type === 'payment.failed')).toMatchObject({
+      failed: true,
+      text: 'Payment failed · insufficient_funds',
+    });
+    expect(dlq.messages).toHaveLength(0);
   });
 });
