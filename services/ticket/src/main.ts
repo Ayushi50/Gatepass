@@ -7,8 +7,11 @@ import { OutboxRelay } from '@gatepass/outbox';
 import { CONSUMED_TOPICS, CONSUMER_GROUP, ticketHandler } from './handlers';
 import { TicketModule } from './http/ticket.module';
 import { QrKeyRing } from './qr-token';
+import { collectProcessMetrics, initTelemetry, mountTelemetry } from '@gatepass/telemetry';
 
 async function main(): Promise<void> {
+  initTelemetry('ticket'); // tracing is off unless OTEL_EXPORTER_OTLP_ENDPOINT is set
+  collectProcessMetrics();
   const keys = new QrKeyRing(requireEnv('TICKET_SIGNING_KEYS'));
   const pool = createPool(requireEnv('DATABASE_URL'), 20);
   await migrate(pool, join(__dirname, '..', 'migrations'));
@@ -32,6 +35,7 @@ async function main(): Promise<void> {
   }).start();
 
   const app = await NestFactory.create(TicketModule.forDeps(pool, keys));
+  mountTelemetry(app, 'ticket');
   app.enableShutdownHooks();
   await app.listen(Number(process.env.PORT ?? 3005));
   console.log(`[ticket] listening on ${process.env.PORT ?? 3005}`);

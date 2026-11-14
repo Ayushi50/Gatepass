@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 // `pnpm stack`: the whole system on this machine, in one command.
 //
 //   KAFKA_HOME=/path/to/kafka_2.13-3.9.0 pnpm stack          (or KAFKA_BROKERS=host:9092 for a broker you run)

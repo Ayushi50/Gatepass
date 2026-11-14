@@ -58,3 +58,17 @@ export async function serveMetrics(res: Res): Promise<void> {
 }
 
 export { trace };
+
+interface AppLike {
+  use(fn: unknown): unknown;
+  getHttpAdapter(): {
+    get(path: string, handler: (req: unknown, res: unknown) => unknown): unknown;
+  };
+}
+
+/** Adds the request middleware (traces, timings) and `GET /metrics` to a Nest/Express app. */
+export function mountTelemetry(app: unknown, service: string): void {
+  const a = app as AppLike;
+  a.use(httpTelemetry(service));
+  a.getHttpAdapter().get('/metrics', (_req, res) => serveMetrics(res as Res));
+}

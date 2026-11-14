@@ -1,5 +1,6 @@
 import { Kafka, logLevel, type Consumer, type Producer } from 'kafkajs';
 import type { EventPublisher, OutboundMessage } from '@gatepass/outbox';
+import { LagMonitor, type AdminLike } from './lag';
 import {
   createMessageHandler,
   type DeadLetterPublisher,
@@ -111,6 +112,8 @@ export class KafkaEventConsumer {
     });
   }
 
+  private lag: LagMonitor | undefined;
+
   async start(): Promise<void> {
     const handle = createMessageHandler(this.opts);
     await this.consumer.connect();
@@ -131,9 +134,19 @@ export class KafkaEventConsumer {
         });
       },
     });
+
+    // Report this group's lag and dead-letter depth. (The gateway's per-instance stream groups are
+    // throwaway, so they are skipped: a series per instance would never stop growing.)
+    if (!this.opts.groupId.startsWith('gateway-streams-')) {
+      const admin = this.opts.kafka.admin();
+      await admin.connect();
+      this.lag = new LagMonitor(admin as unknown as AdminLike, this.opts.groupId, this.opts.topics);
+      this.lag.start();
+    }
   }
 
   async stop(): Promise<void> {
+    this.lag?.stop();
     await this.consumer.disconnect();
   }
 }

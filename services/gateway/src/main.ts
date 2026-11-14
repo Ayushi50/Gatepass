@@ -19,8 +19,16 @@ import {
   SeatStreamHub,
   startStreamBridge,
 } from './seat-stream/seat-stream';
+import {
+  collectProcessMetrics,
+  collectedGauge,
+  initTelemetry,
+  mountTelemetry,
+} from '@gatepass/telemetry';
 
 async function main(): Promise<void> {
+  initTelemetry('gateway'); // tracing is off unless OTEL_EXPORTER_OTLP_ENDPOINT is set
+  collectProcessMetrics();
   const secret = requireEnv('JWT_SECRET');
   if (secret.length < 32) throw new Error('JWT_SECRET must be at least 32 characters');
 
@@ -45,6 +53,17 @@ async function main(): Promise<void> {
     onError: (e) => console.error('[gateway] waiting room admitter:', (e as Error).message),
   }).start();
 
+  collectedGauge(
+    'gatepass_waiting_room_queue_length',
+    'People waiting, per show.',
+    ['event'],
+    async (g) => {
+      g.reset();
+      for (const event of await waitingRoom.activeEvents())
+        g.set({ event }, await waitingRoom.queueLength(event));
+    },
+  );
+
   const app = await NestFactory.create(
     GatewayModule.forRoot({
       catalog: new HttpCatalogClient(requireEnv('CATALOG_URL')),
@@ -61,6 +80,7 @@ async function main(): Promise<void> {
       devLogin,
     }),
   );
+  mountTelemetry(app, 'gateway');
   app.enableShutdownHooks();
   await app.listen(Number(process.env.PORT ?? 3000));
   console.log(`[gateway] listening on ${process.env.PORT ?? 3000}`);

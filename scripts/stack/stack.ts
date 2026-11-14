@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createWriteStream, existsSync } from 'node:fs';
 import { join } from 'node:path';

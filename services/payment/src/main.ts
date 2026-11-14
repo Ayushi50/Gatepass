@@ -9,6 +9,7 @@ import { PaymentModule } from './http/payment.module';
 import { FAKE_SIGNATURE_HEADER, FakeProvider } from './providers/fake-provider';
 import type { PaymentProvider } from './providers/provider';
 import { RazorpayTestProvider } from './providers/razorpay-provider';
+import { collectProcessMetrics, initTelemetry, mountTelemetry } from '@gatepass/telemetry';
 
 function buildProvider(port: number): PaymentProvider {
   const kind = requireEnv('PAYMENT_PROVIDER');
@@ -45,6 +46,8 @@ function buildProvider(port: number): PaymentProvider {
 }
 
 async function main(): Promise<void> {
+  initTelemetry('payment'); // tracing is off unless OTEL_EXPORTER_OTLP_ENDPOINT is set
+  collectProcessMetrics();
   const port = Number(process.env.PORT ?? 3004);
   const pool = createPool(requireEnv('DATABASE_URL'));
   await migrate(pool, join(__dirname, '..', 'migrations'));
@@ -71,6 +74,7 @@ async function main(): Promise<void> {
   const app = await NestFactory.create(PaymentModule.forDeps({ pool, provider }), {
     rawBody: true,
   });
+  mountTelemetry(app, 'payment');
   app.enableShutdownHooks();
   await app.listen(port);
   console.log(`[payment] listening on ${port} (provider: ${provider.name})`);

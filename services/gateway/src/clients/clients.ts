@@ -1,3 +1,4 @@
+import { injectTraceHeaders } from '@gatepass/telemetry';
 /**
  * The gateway talks to services only through these interfaces (plain HTTP in production,
  * fakes in tests). This is the one place synchronous service calls are allowed (rule 8).
@@ -152,7 +153,10 @@ async function call<T>(baseUrl: string, path: string, init?: RequestInit): Promi
   try {
     res = await fetch(`${baseUrl}${path}`, {
       ...init,
-      headers: { 'content-type': 'application/json', ...init?.headers },
+      headers: injectTraceHeaders({
+        'content-type': 'application/json',
+        ...(init?.headers as Record<string, string>),
+      }),
       signal: AbortSignal.timeout(5000),
     });
   } catch (err) {
@@ -253,7 +257,7 @@ export class HttpTicketClient implements TicketClient {
     try {
       res = await fetch(`${this.baseUrl}/checkin`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: injectTraceHeaders({ 'content-type': 'application/json' }),
         body: JSON.stringify({ qrToken, staffId }),
         signal: AbortSignal.timeout(5000),
       });

@@ -6,8 +6,11 @@ import { KafkaEventConsumer, KafkaEventPublisher, createKafka } from '@gatepass/
 import { OutboxRelay } from '@gatepass/outbox';
 import { CONSUMED_TOPICS, CONSUMER_GROUP, bookingHandler } from './handlers';
 import { BookingModule } from './http/booking.module';
+import { collectProcessMetrics, initTelemetry, mountTelemetry } from '@gatepass/telemetry';
 
 async function main(): Promise<void> {
+  initTelemetry('booking'); // tracing is off unless OTEL_EXPORTER_OTLP_ENDPOINT is set
+  collectProcessMetrics();
   const pool = createPool(requireEnv('DATABASE_URL'));
   await migrate(pool, join(__dirname, '..', 'migrations'));
 
@@ -32,6 +35,7 @@ async function main(): Promise<void> {
   await consumer.start();
 
   const app = await NestFactory.create(BookingModule.forPool(pool));
+  mountTelemetry(app, 'booking');
   app.enableShutdownHooks();
   await app.listen(Number(process.env.PORT ?? 3003));
   console.log(`[booking] listening on ${process.env.PORT ?? 3003}`);

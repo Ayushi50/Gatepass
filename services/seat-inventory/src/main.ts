@@ -7,8 +7,11 @@ import { OutboxRelay } from '@gatepass/outbox';
 import { HoldSweeper } from './expiry';
 import { CONSUMED_TOPICS, CONSUMER_GROUP, seatInventoryHandler } from './handlers';
 import { InventoryModule } from './http/inventory.module';
+import { collectProcessMetrics, initTelemetry, mountTelemetry } from '@gatepass/telemetry';
 
 async function main(): Promise<void> {
+  initTelemetry('seat-inventory'); // tracing is off unless OTEL_EXPORTER_OTLP_ENDPOINT is set
+  collectProcessMetrics();
   const pool = createPool(requireEnv('DATABASE_URL'), 20);
   await migrate(pool, join(__dirname, '..', 'migrations'));
 
@@ -41,6 +44,7 @@ async function main(): Promise<void> {
   await consumer.start();
 
   const app = await NestFactory.create(InventoryModule.forPool(pool));
+  mountTelemetry(app, 'seat-inventory');
   app.enableShutdownHooks();
   await app.listen(Number(process.env.PORT ?? 3002));
   console.log(`[seat-inventory] listening on ${process.env.PORT ?? 3002}`);

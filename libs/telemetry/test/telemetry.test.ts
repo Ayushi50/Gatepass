@@ -12,7 +12,6 @@ import {
 } from '../src';
 
 const exporter = new InMemorySpanExporter();
-const names = () => exporter.getFinishedSpans().map((s) => s.name);
 const byName = (n: string) => exporter.getFinishedSpans().find((s) => s.name === n)!;
 
 describe('with tracing OFF (the default)', () => {

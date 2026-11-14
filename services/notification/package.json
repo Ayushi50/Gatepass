@@ -11,6 +11,7 @@
     "@gatepass/events": "workspace:*",
     "@gatepass/messaging": "workspace:*",
     "@gatepass/outbox": "workspace:*",
+    "@gatepass/telemetry": "workspace:*",
     "pg": "^8.23.1"
   },
   "devDependencies": {
