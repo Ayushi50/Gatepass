@@ -61,6 +61,7 @@ export async function startTestPostgres(): Promise<TestPostgres> {
 
   const adminUrl = `postgres://postgres:${PASSWORD}@127.0.0.1:${port}/postgres`;
   const admin = new Pool({ connectionString: adminUrl, max: 1 });
+  admin.on('error', () => {}); // server shutdown at teardown is expected
 
   return {
     async createDatabase(poolSize = 10) {
@@ -68,6 +69,7 @@ export async function startTestPostgres(): Promise<TestPostgres> {
       await admin.query(`CREATE DATABASE ${name}`);
       const connectionString = `postgres://postgres:${PASSWORD}@127.0.0.1:${port}/${name}`;
       const pool = new Pool({ connectionString, max: poolSize });
+      pool.on('error', () => {}); // idle clients error when the server stops at teardown
       return {
         pool,
         connectionString,
