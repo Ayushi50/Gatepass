@@ -3,3 +3,5 @@ node_modules/
 libs/events/src/gen/
 pnpm-lock.yaml
 gatepass-ui.zip
+BUILD_PROMPT.md
+CLAUDE.md
