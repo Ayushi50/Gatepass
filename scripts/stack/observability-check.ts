@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- JSON from Prometheus, Grafana and Jaeger */
 // `pnpm observability:check`: boots the whole system with Jaeger, Prometheus and Grafana, drives real
 // bookings through it, then proves that each dashboard panel has data, that Grafana loaded the
 // dashboard, and that one booking is a single trace crossing several services.
@@ -194,13 +195,27 @@ async function main(): Promise<void> {
     }
 
     if (process.argv.includes('--screenshot')) {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- Playwright lives in apps/web
       const { chromium } = require(
         require.resolve('@playwright/test', { paths: [join(ROOT, 'apps', 'web')] }),
       );
       const browser = await chromium.launch();
-      const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
-      await page.goto(`${g}/d/gatepass-overview?kiosk`, { waitUntil: 'networkidle' });
+      const page = await browser.newPage({ viewport: { width: 1500, height: 1150 } });
+      page.on('response', (r: any) => {
+        if (!r.url().includes('/api/ds/query') || !process.env.DEBUG_DASHBOARD) return;
+        void r
+          .text()
+          .then((t: string) =>
+            console.log(r.status(), r.request().postData()?.slice(-80), t.slice(-300)),
+          );
+      });
+      await page.goto(`${g}/d/gatepass-overview?kiosk&from=now-5m&to=now`, {
+        waitUntil: 'networkidle',
+      });
       await sleep(4000);
+      const empty = await page.getByText('No data', { exact: true }).count();
+      if (empty) bad(`${empty} dashboard panel(s) render "No data" in the browser`);
+      else ok('every dashboard panel renders data in the browser');
       mkdirSync(join(ROOT, 'docs', 'images'), { recursive: true });
       await page.screenshot({ path: join(ROOT, 'docs', 'images', 'grafana-dashboard.png') });
       await browser.close();

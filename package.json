@@ -19,7 +19,8 @@
     "stack": "ts-node --transpile-only scripts/stack/up.ts",
     "e2e": "pnpm --filter @gatepass/web e2e",
     "tools": "ts-node --transpile-only scripts/stack/tools-cli.ts",
-    "observability:check": "ts-node --transpile-only scripts/stack/observability-check.ts"
+    "observability:check": "ts-node --transpile-only scripts/stack/observability-check.ts",
+    "loadtest": "ts-node --transpile-only scripts/stack/loadtest.ts"
   },
   "devDependencies": {
     "@bufbuild/buf": "^1.75.0",

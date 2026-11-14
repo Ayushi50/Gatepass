@@ -2,7 +2,7 @@
 
 Ticket booking for live events, built as an event-driven microservices system: Kafka (Redpanda), Postgres per service, Redis, NestJS services, and a Next.js frontend built from the designs in [`design/`](design/).
 
-> **Status: Phase 5 (frontend).** A Next.js app built from `design/` (pixel-identical to it), one command to run the whole system, and a real-browser test that books, pays, gets a QR ticket, checks in, refunds and queues. Phase 6 (observability and load tests) is next.
+> **Status: Phase 6 (observability and load test), the last phase.** Every service is traced and measured, there is a Grafana dashboard, and a k6 load test proves a 1,000-seat show sells with a duplicate rate of 0.
 
 ## Architecture
 
@@ -114,6 +114,48 @@ JWT_SECRET=... pnpm --filter @gatepass/gateway dev-token attendee user-1
 JWT_SECRET=... pnpm --filter @gatepass/gateway dev-token organizer org-demo   # owns the demo events
 JWT_SECRET=... pnpm --filter @gatepass/gateway dev-token door-staff staff-1
 ```
+
+## Observability
+
+```bash
+KAFKA_HOME=... pnpm stack -- --observability     # also Grafana :3200, Prometheus :9090, Jaeger :16686
+KAFKA_HOME=... pnpm observability:check          # proves every panel has data and traces cross services
+```
+
+Jaeger, Prometheus, Grafana and k6 are downloaded once into `~/.cache/gatepass/tools` (checksums verified); no Docker. Grafana opens on the Gatepass dashboard without a sign-in.
+
+![The Grafana dashboard](docs/images/grafana-dashboard.png)
+
+- **Traces.** Search Jaeger for service `gateway`, operation `POST /api/bookings`: one trace runs gateway → booking → seat-inventory → payment through Kafka. The payment is a second trace starting at `payment` `POST /webhooks/:provider` and reaching ticket and notification.
+- **Metrics** (`GET /metrics` on each service; notification on 3006): `gatepass_bookings_requested_total`, `gatepass_bookings_confirmed_total`, `gatepass_bookings_cancelled_total{reason}`, `gatepass_holds_created_total`, `gatepass_holds_expired_total`, `gatepass_payments_total{outcome}`, `gatepass_payment_duration_seconds`, `gatepass_consumer_lag{group,topic}`, `gatepass_dlq_depth{dlq}`, `gatepass_outbox_pending{relay}`, `gatepass_http_request_duration_seconds`, and more. They are counted after the commit, so a redelivered message never counts twice.
+- Settings: `OTEL_EXPORTER_OTLP_ENDPOINT` (tracing is off without it), `METRICS_PORT` (notification), `LAG_INTERVAL_MS`.
+
+## Load test
+
+```bash
+KAFKA_HOME=... pnpm loadtest          # PEAK_VUS=20 for a gentler run; add -- --observability to watch it
+```
+
+k6 ramps to 50 buyers who all want seats in one 1,000-seat show. Each picks one or two seats at random, waits for the hold, pays (one time in five the payment is sent twice at once) and waits for confirmation. Afterwards the script reads the databases. Measured on one laptop (Apple silicon, one Kafka broker, embedded Postgres without fsync, fake provider answering in 100 ms), so read it as proof of correctness under contention, not as capacity:
+
+| Measure                            | Result                                       |
+| ---------------------------------- | -------------------------------------------- |
+| Buyers at peak                     | 50                                           |
+| Run length                         | 60 s                                         |
+| Booking attempts                   | 4,602 (76.4 per second)                      |
+| Bookings confirmed                 | 733 (968 of 1,000 seats sold)                |
+| Refused because the seat was taken | 3,869                                        |
+| HTTP requests                      | 31,719 (526 per second), 0.00% failed        |
+| HTTP latency p95                   | 3 ms                                         |
+| Request to seat decision p95       | 415 ms                                       |
+| Pay to confirmed p95               | 417 ms (includes the fake provider's 100 ms) |
+| Whole booking p95                  | 829 ms                                       |
+| Double-clicked payments sent       | 159                                          |
+| Seats sold twice                   | 0                                            |
+| Bookings charged twice             | 0                                            |
+| **Duplicate rate**                 | **0**                                        |
+
+Duplicate rate = (seats held by two confirmed bookings + bookings with two successful charges) ÷ confirmed bookings. The run also checked 733 charges = 733 confirmed bookings and 968 tickets = 968 sold seats. See [ADR 0017](docs/adr/0017-observability-and-load.md).
 
 ## Resilience tools
 

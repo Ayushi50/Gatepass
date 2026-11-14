@@ -58,6 +58,7 @@ async function main(): Promise<void> {
     metrics.paymentsFinished(),
     ['succeeded', 'failed'].map((outcome) => ({ outcome })),
   );
+  for (const outcome of ['succeeded', 'failed']) metrics.paymentDuration().zero({ outcome });
   startAtZero(
     metrics.refundsCompleted(),
     ['automatic', 'approved'].map((kind) => ({ kind })),

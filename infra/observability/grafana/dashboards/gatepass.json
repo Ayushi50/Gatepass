@@ -144,20 +144,9 @@
             "type": "prometheus",
             "uid": "gatepass-prom"
           },
-          "expr": "sum(increase(gatepass_holds_expired_total[5m])) / sum(increase(gatepass_holds_created_total[5m]))",
+          "expr": "sum(increase(gatepass_holds_expired_total[5m])) / clamp_min(sum(increase(gatepass_holds_created_total[5m])), 1)",
           "legendFormat": "expired / created",
           "refId": "A",
-          "editorMode": "code",
-          "range": true
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "gatepass-prom"
-          },
-          "expr": "sum(rate(gatepass_holds_expired_total[1m])) * 60",
-          "legendFormat": "expired per minute",
-          "refId": "B",
           "editorMode": "code",
           "range": true
         }
@@ -170,7 +159,8 @@
             "lineWidth": 2,
             "fillOpacity": 12,
             "spanNulls": true
-          }
+          },
+          "max": 1
         },
         "overrides": []
       },
