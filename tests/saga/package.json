@@ -1,0 +1,17 @@
+{
+  "name": "@gatepass/saga-tests",
+  "version": "0.0.0",
+  "private": true,
+  "devDependencies": {
+    "@gatepass/booking": "workspace:*",
+    "@gatepass/catalog": "workspace:*",
+    "@gatepass/db": "workspace:*",
+    "@gatepass/events": "workspace:*",
+    "@gatepass/messaging": "workspace:*",
+    "@gatepass/outbox": "workspace:*",
+    "@gatepass/seat-inventory": "workspace:*",
+    "@gatepass/testing": "workspace:*",
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.1"
+  }
+}

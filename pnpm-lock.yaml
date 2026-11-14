@@ -444,6 +444,39 @@ importers:
         specifier: ^7.3.2
         version: 7.3.2(supports-color@8.1.1)
 
+  tests/saga:
+    devDependencies:
+      '@gatepass/booking':
+        specifier: workspace:*
+        version: link:../../services/booking
+      '@gatepass/catalog':
+        specifier: workspace:*
+        version: link:../../services/catalog
+      '@gatepass/db':
+        specifier: workspace:*
+        version: link:../../libs/db
+      '@gatepass/events':
+        specifier: workspace:*
+        version: link:../../libs/events
+      '@gatepass/messaging':
+        specifier: workspace:*
+        version: link:../../libs/messaging
+      '@gatepass/outbox':
+        specifier: workspace:*
+        version: link:../../libs/outbox
+      '@gatepass/seat-inventory':
+        specifier: workspace:*
+        version: link:../../services/seat-inventory
+      '@gatepass/testing':
+        specifier: workspace:*
+        version: link:../../libs/testing
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
+      pg:
+        specifier: ^8.23.1
+        version: 8.23.1
+
 packages:
 
   '@babel/code-frame@7.29.7':
