@@ -98,6 +98,8 @@ message SeatsHeld {
   string event_id = 2;
   repeated string seat_ids = 3;
   int64 hold_expires_at_ms = 4;  // server time; the browser never uses its own clock
+  int64 amount_minor = 5;        // total price of the held seats
+  string currency = 6;
 }
 
 message SeatsHoldFailed {

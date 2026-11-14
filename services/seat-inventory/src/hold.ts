@@ -7,7 +7,7 @@ export interface HoldRequest {
 }
 
 export type HoldResult =
-  | { ok: true }
+  | { ok: true; amountMinor: number; currency: string }
   | {
       ok: false;
       reason: 'invalid_request' | 'unknown_seat' | 'seat_unavailable';
@@ -45,14 +45,19 @@ export async function holdSeats(
   );
 
   if (locked.rowCount === req.seatIds.length) {
-    await tx.query(
+    const held = await tx.query<{ price_minor: string; currency: string }>(
       `UPDATE seats
           SET state = 'held', booking_id = $3, hold_expires_at = $4,
               version = version + 1, updated_at = now()
-        WHERE event_id = $1 AND seat_id = ANY($2)`,
+        WHERE event_id = $1 AND seat_id = ANY($2)
+    RETURNING price_minor, currency`,
       [req.eventId, req.seatIds, req.bookingId, holdExpiresAt],
     );
-    return { ok: true };
+    return {
+      ok: true,
+      amountMinor: held.rows.reduce((sum, r) => sum + Number(r.price_minor), 0),
+      currency: held.rows[0]!.currency,
+    };
   }
 
   const got = new Set(locked.rows.map((r) => r.seat_id));

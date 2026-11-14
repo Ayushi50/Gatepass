@@ -3,7 +3,15 @@ import type { Pool } from 'pg';
 import { migrate } from '@gatepass/db';
 import { buildEnvelope, decodeEnvelope } from '@gatepass/events';
 import { startTestPostgres, type TestDatabase, type TestPostgres } from '@gatepass/testing';
-import { getAvailability, getSeats, holdSeats, onBookingRequested, onEventPublished } from '../src';
+import {
+  getAvailability,
+  getSeats,
+  holdSeats,
+  onBookingRequested,
+  onEventPublished,
+  onPaymentFailed,
+  onPaymentSucceeded,
+} from '../src';
 
 jest.setTimeout(300_000);
 
@@ -107,7 +115,7 @@ describe('holdSeats (all or none)', () => {
       { bookingId: 'b1', eventId: 'ev-a', seatIds: ['A1', 'A2'] },
       exp,
     );
-    expect(r).toEqual({ ok: true });
+    expect(r).toEqual({ ok: true, amountMinor: 360000, currency: 'INR' });
     const seats = await getSeats(pool, 'ev-a');
     expect(seats.filter((s) => s.state === 'held').map((s) => s.id)).toEqual(['A1', 'A2']);
     const row = await pool.query(
@@ -277,5 +285,112 @@ describe('NO DOUBLE BOOKING under concurrency', () => {
       if (e.payload.case !== 'seatsHoldFailed') throw new Error('wrong payload');
       expect(perBooking.has(e.payload.value.bookingId)).toBe(false);
     }
+  });
+});
+
+const paymentSucceeded = (bookingId: string) =>
+  buildEnvelope({
+    eventType: 'payment.succeeded',
+    correlationId: bookingId,
+    producer: 'payment',
+    payload: {
+      bookingId,
+      paymentId: 'pay-1',
+      amountMinor: 360000n,
+      currency: 'INR',
+      providerRef: 'p',
+    },
+  });
+
+const paymentFailed = (bookingId: string) =>
+  buildEnvelope({
+    eventType: 'payment.failed',
+    correlationId: bookingId,
+    producer: 'payment',
+    payload: { bookingId, paymentId: 'pay-1', reason: 'declined' },
+  });
+
+describe('seats.held carries the amount', () => {
+  it('sums the held seats price and currency', async () => {
+    await publishEvent('ev-amt', 1, 4);
+    await onBookingRequested(pool, requested('bk-amt', 'ev-amt', ['A1', 'A2', 'A3']));
+    const [held] = await outboxEvents('seats.held', 'ev-amt');
+    if (held!.payload.case !== 'seatsHeld') throw new Error('wrong payload');
+    expect(held!.payload.value).toMatchObject({ amountMinor: 540000n, currency: 'INR' });
+  });
+});
+
+describe('payment.succeeded handler', () => {
+  it('sells the held seats and emits seats.sold, once', async () => {
+    await publishEvent('ev-sold', 1, 4);
+    await onBookingRequested(pool, requested('bk-s', 'ev-sold', ['A1', 'A2']));
+    const ev = paymentSucceeded('bk-s');
+    await onPaymentSucceeded(pool, ev);
+    await onPaymentSucceeded(pool, ev); // duplicate delivery
+
+    const seats = await getSeats(pool, 'ev-sold');
+    expect(seats.filter((s) => s.state === 'taken').map((s) => s.id)).toEqual(['A1', 'A2']);
+    const sold = await outboxEvents('seats.sold', 'ev-sold');
+    expect(sold).toHaveLength(1);
+    expect(sold[0]!.causationId).toBe(ev.eventId);
+    expect(sold[0]!.correlationId).toBe('bk-s');
+    if (sold[0]!.payload.case !== 'seatsSold') throw new Error('wrong payload');
+    expect(sold[0]!.payload.value.seatIds).toEqual(['A1', 'A2']);
+  });
+
+  it('a second payment.succeeded event for an already-sold booking changes nothing', async () => {
+    await publishEvent('ev-sold2', 1, 2);
+    await onBookingRequested(pool, requested('bk-s2', 'ev-sold2', ['A1']));
+    await onPaymentSucceeded(pool, paymentSucceeded('bk-s2'));
+    await onPaymentSucceeded(pool, paymentSucceeded('bk-s2')); // different eventId
+    expect(await outboxEvents('seats.sold', 'ev-sold2')).toHaveLength(1);
+  });
+
+  it('fails loudly (so it is retried, then dead-lettered) when the booking holds no seats', async () => {
+    await expect(onPaymentSucceeded(pool, paymentSucceeded('no-such-booking'))).rejects.toThrow(
+      /holds no seats/,
+    );
+  });
+});
+
+describe('payment.failed handler', () => {
+  it('returns held seats to sale and emits seats.released, once', async () => {
+    await publishEvent('ev-rel', 1, 4);
+    await onBookingRequested(pool, requested('bk-r', 'ev-rel', ['A1', 'A2']));
+    const ev = paymentFailed('bk-r');
+    await onPaymentFailed(pool, ev);
+    await onPaymentFailed(pool, ev);
+
+    expect((await getSeats(pool, 'ev-rel')).every((s) => s.state === 'available')).toBe(true);
+    const owner = await pool.query(
+      "SELECT count(*) FROM seats WHERE event_id='ev-rel' AND booking_id IS NOT NULL",
+    );
+    expect(owner.rows[0].count).toBe('0');
+    const released = await outboxEvents('seats.released', 'ev-rel');
+    expect(released).toHaveLength(1);
+    if (released[0]!.payload.case !== 'seatsReleased') throw new Error('wrong payload');
+    expect(released[0]!.payload.value).toMatchObject({
+      bookingId: 'bk-r',
+      seatIds: ['A1', 'A2'],
+      reason: 'payment_failed',
+    });
+  });
+
+  it('never un-sells a confirmed booking (late or stray failure)', async () => {
+    await publishEvent('ev-stray', 1, 2);
+    await onBookingRequested(pool, requested('bk-x', 'ev-stray', ['A1']));
+    await onPaymentSucceeded(pool, paymentSucceeded('bk-x'));
+    await onPaymentFailed(pool, paymentFailed('bk-x'));
+    expect((await getSeats(pool, 'ev-stray')).find((s) => s.id === 'A1')!.state).toBe('taken');
+    expect(await outboxEvents('seats.released', 'ev-stray')).toHaveLength(0);
+  });
+
+  it('released seats can be held by someone else', async () => {
+    await publishEvent('ev-again', 1, 2);
+    await onBookingRequested(pool, requested('bk-first', 'ev-again', ['A1']));
+    await onPaymentFailed(pool, paymentFailed('bk-first'));
+    await onBookingRequested(pool, requested('bk-second', 'ev-again', ['A1']));
+    const held = await outboxEvents('seats.held', 'ev-again');
+    expect(held).toHaveLength(2);
   });
 });
