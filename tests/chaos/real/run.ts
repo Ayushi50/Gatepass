@@ -397,8 +397,14 @@ async function main(): Promise<void> {
           )
         ).rows[0];
         if (!pay) {
-          pending++;
-          continue; // our side has not recorded the payment yet; the provider will try again later
+          // No payment was ever created (the hold had already expired, or the pay call never got
+          // through) and the booking is final: the provider never charged anyone, so nothing is owed.
+          const b = (
+            await dbs.booking.pool.query('SELECT state FROM bookings WHERE id = $1', [bookingId])
+          ).rows[0];
+          if (all && b && (b.state === 'CONFIRMED' || b.state === 'CANCELLED')) plan.done = true;
+          else pending++;
+          continue; // otherwise our side has not recorded the payment yet; the provider will try again
         }
         if (plan.outcome === 'succeeded') captured.add(pay.id); // the money WAS taken, whether or not we heard yet
         const ok = await sendWebhook(
@@ -501,7 +507,43 @@ async function main(): Promise<void> {
         }
         await sleep(1000);
       }
-      say(`${label}: DID NOT SETTLE in 150s: ${last}`);
+      say(`${label}: DID NOT SETTLE in 150s`);
+      const why = async (title: string, p: Pool, sql: string) =>
+        say(`  ${title}: ${JSON.stringify((await p.query(sql)).rows)}`);
+      await why(
+        'bookings not final',
+        dbs.booking.pool,
+        "SELECT id, state FROM bookings WHERE state NOT IN ('CONFIRMED','CANCELLED')",
+      );
+      await why(
+        'payments not final',
+        dbs.payment.pool,
+        "SELECT id, booking_id, state FROM payments WHERE state NOT IN ('SUCCEEDED','FAILED')",
+      );
+      await why(
+        'payment-side refunds not done',
+        dbs.payment.pool,
+        "SELECT id, state FROM refunds WHERE state <> 'COMPLETED'",
+      );
+      await why(
+        'booking-side refunds not done',
+        dbs.booking.pool,
+        "SELECT id, state FROM refunds WHERE state <> 'COMPLETED'",
+      );
+      for (const sName of DB_SERVICES)
+        await why(
+          `unsent in ${sName}`,
+          dbs[sName].pool,
+          'SELECT event_type, attempts, last_error FROM outbox WHERE published_at IS NULL LIMIT 5',
+        );
+      say(
+        `  webhooks still owed: ${
+          [...intended]
+            .filter(([, p]) => !p.done)
+            .map(([id]) => id)
+            .join(', ') || 'none'
+        }`,
+      );
       return false;
     };
     const settled = await settle('first settle');

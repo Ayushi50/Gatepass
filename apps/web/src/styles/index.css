@@ -1,0 +1,163 @@
+/* Generated from design/index.html by scripts/scope-css.mjs. Do not restyle: change the design, then regenerate. */
+.pg-index .hero {
+  text-align: center;
+  padding: 64px 48px 0;
+}
+.pg-index .hero h1 {
+  margin: 22px auto 24px;
+  max-width: 980px;
+  font-size: clamp(48px, 8.75vw, 112px);
+  line-height: 0.94;
+  letter-spacing: -0.035em;
+}
+.pg-index .hero p.lead {
+  margin: 0 auto 34px;
+  max-width: 560px;
+  font-size: 19px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.pg-index .hero .actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px 26px;
+}
+.pg-index .hero .actions .link {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text);
+  text-decoration: none;
+}
+.pg-index .auditorium {
+  position: relative;
+  padding: 36px 0 0;
+  overflow: hidden;
+}
+.pg-index .stage-glow {
+  width: 760px;
+  max-width: 90%;
+  height: 150px;
+  margin: 0 auto -78px;
+  border-radius: 50%;
+  background: rgba(255, 179, 71, 0.14);
+}
+.pg-index .stage-line {
+  width: 360px;
+  max-width: 70%;
+  height: 3px;
+  margin: 0 auto 10px;
+  background: var(--amber);
+  border-radius: 2px;
+}
+.pg-index .stage-label {
+  margin: 0 0 36px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  color: var(--quiet);
+}
+.pg-index .seat-field {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-bottom: 20px;
+  overflow: hidden;
+}
+.pg-index .frow {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.pg-index .fseat {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  border-radius: 7px 7px 4px 4px;
+  background: var(--seat-dim);
+  flex: none;
+}
+.pg-index .fseat.taken {
+  background: var(--seat-taken);
+}
+.pg-index .fseat.lit {
+  background: var(--amber);
+  box-shadow: 0 0 14px rgba(255, 179, 71, 0.6);
+  animation: twinkle 3.2s ease-in-out infinite;
+}
+.pg-index .fseat.mine {
+  background: var(--amber);
+  box-shadow:
+    0 0 0 3px var(--ground),
+    0 0 0 5px var(--amber),
+    0 0 24px rgba(255, 179, 71, 0.9);
+}
+.pg-index .fseat .yours {
+  position: absolute;
+  bottom: 34px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  background: var(--cream);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 999px;
+}
+@keyframes twinkle {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+.pg-index .how {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 48px;
+  padding: 56px 48px 40px;
+}
+.pg-index .how > div {
+  flex: 1 1 260px;
+  min-width: 0;
+  border-top: 1px solid var(--line);
+  padding: 22px 0 28px;
+}
+.pg-index .how .num {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 28px;
+  color: var(--amber);
+}
+.pg-index .how h2 {
+  margin: 10px 0 10px;
+  font-size: 30px;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+.pg-index .how p {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.pg-index .site-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 28px 48px 40px;
+  border-top: 1px solid var(--line-soft);
+}
+.pg-index .site-footer .mark {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 22px;
+}

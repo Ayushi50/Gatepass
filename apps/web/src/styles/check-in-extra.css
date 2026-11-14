@@ -1,0 +1,38 @@
+/* The camera feed inside the viewfinder, and the type-the-code row that takes the place of the design-review switcher. Tokens only. */
+.pg-check-in .viewfinder video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.pg-check-in .viewfinder .corner,
+.pg-check-in .viewfinder .scan,
+.pg-check-in .viewfinder .hint {
+  z-index: 1;
+}
+.pg-check-in .viewfinder .hint {
+  background: rgba(13, 10, 16, 0.55);
+  padding: 6px 0;
+}
+.pg-check-in .manual {
+  display: flex;
+  gap: 8px;
+  margin: 18px 0;
+}
+.pg-check-in .manual input {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  padding: 0 14px;
+  background: var(--panel);
+  border: 1px solid var(--outline);
+  border-radius: 14px;
+  color: var(--text);
+  font: 14px var(--font-ui);
+}
+.pg-check-in .manual .btn {
+  min-height: 44px;
+  padding: 0 18px;
+  font-size: 14px;
+}

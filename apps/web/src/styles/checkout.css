@@ -1,0 +1,98 @@
+/* Generated from design/checkout.html by scripts/scope-css.mjs. Do not restyle: change the design, then regenerate. */
+.pg-checkout .layout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 48px;
+  padding: 32px 48px 72px;
+}
+.pg-checkout .pay {
+  flex: 999 1 560px;
+  min-width: 0;
+  max-width: 700px;
+}
+.pg-checkout .pay h1 {
+  margin: 16px 0 28px;
+  font-size: clamp(48px, 5.9vw, 76px);
+  line-height: 0.95;
+  letter-spacing: -0.035em;
+}
+.pg-checkout .clock {
+  padding: 24px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.pg-checkout .clock .top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 20px;
+}
+.pg-checkout .clock .time {
+  font-family: var(--font-display);
+  font-size: 88px;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--amber);
+}
+.pg-checkout .track {
+  margin-top: 18px;
+  height: 3px;
+  background: var(--line-soft);
+  border-radius: 2px;
+}
+.pg-checkout .track > div {
+  height: 3px;
+  background: var(--amber);
+  border-radius: 2px;
+  box-shadow: 0 0 10px rgba(255, 179, 71, 0.7);
+  transition: width 1s linear;
+}
+.pg-checkout .expired {
+  margin-top: 22px;
+  padding: 18px 20px;
+  border: 1px dashed var(--amber);
+  border-radius: 16px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.pg-checkout .pay h2.sub {
+  margin: 40px 0 16px;
+  font-size: 30px;
+  letter-spacing: -0.02em;
+}
+.pg-checkout .methods {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  gap: 12px;
+}
+.pg-checkout .pay-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 20px;
+  margin-top: 20px;
+}
+.pg-checkout .test-tag {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  border: 1px solid var(--outline);
+  padding: 6px 14px;
+  border-radius: 999px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.pg-checkout aside {
+  flex: 1 1 340px;
+  max-width: 400px;
+  min-width: 0;
+}
+.pg-checkout .stub h2 {
+  margin: 10px 0 4px;
+  font-size: 36px;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}

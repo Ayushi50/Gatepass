@@ -1,0 +1,80 @@
+/* Generated from design/status.html by scripts/scope-css.mjs. Do not restyle: change the design, then regenerate. */
+.pg-status .wrap {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 40px 48px 80px;
+}
+.pg-status .preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 40px;
+}
+.pg-status h1 {
+  margin: 16px 0 14px;
+  font-size: clamp(44px, 6vw, 76px);
+  line-height: 0.95;
+  letter-spacing: -0.035em;
+}
+.pg-status .lede {
+  margin: 0 0 36px;
+  font-size: 18px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.pg-status .lights {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+.pg-status .light {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-height: 88px;
+  border-bottom: 1px solid var(--line);
+}
+.pg-status .bulb {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--outline);
+}
+.pg-status .light[data-s='done'] .bulb {
+  background: var(--amber);
+  border-color: var(--amber);
+  box-shadow: 0 0 16px var(--amber-glow);
+}
+.pg-status .light[data-s='active'] .bulb {
+  border: 1.5px dashed var(--amber);
+  animation: livepulse 1.6s ease-in-out infinite;
+}
+.pg-status .light[data-s='failed'] .bulb {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.pg-status .light .name {
+  font-family: var(--font-display);
+  font-size: 30px;
+  line-height: 1.1;
+}
+.pg-status .light[data-s='wait'] .name {
+  color: var(--quiet);
+}
+.pg-status .light .state {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.pg-status .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 36px;
+}

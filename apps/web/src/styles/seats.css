@@ -1,0 +1,99 @@
+/* Generated from design/seats.html by scripts/scope-css.mjs. Do not restyle: change the design, then regenerate. */
+.pg-seats .title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 40px;
+  padding: 32px 48px 0;
+}
+.pg-seats .title-row h1 {
+  margin: 14px 0 8px;
+  font-size: clamp(44px, 5.6vw, 72px);
+  line-height: 0.95;
+  letter-spacing: -0.035em;
+}
+.pg-seats .layout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 40px 48px;
+  padding: 28px 48px 72px;
+}
+.pg-seats .map {
+  flex: 999 1 640px;
+  min-width: 0;
+}
+.pg-seats .stage-glow {
+  width: 560px;
+  max-width: 80%;
+  height: 120px;
+  margin: 0 auto -62px;
+  border-radius: 50%;
+  background: rgba(255, 179, 71, 0.12);
+}
+.pg-seats .stage-line {
+  width: 300px;
+  max-width: 60%;
+  height: 3px;
+  margin: 0 auto 10px;
+  background: var(--amber);
+  border-radius: 2px;
+}
+.pg-seats .stage-label {
+  margin: 0 0 30px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  color: var(--quiet);
+}
+.pg-seats .map-scroll {
+  overflow-x: auto;
+  padding: 4px 0 8px;
+}
+.pg-seats .rows {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 760px;
+}
+.pg-seats .row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.pg-seats .row .rl {
+  width: 24px;
+  text-align: center;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 20px;
+  color: var(--muted);
+}
+.pg-seats .row .tier {
+  width: 70px;
+  font-size: 12px;
+  color: var(--quiet);
+}
+.pg-seats .row .seats {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.pg-seats .aisle {
+  width: 26px;
+}
+.pg-seats aside {
+  flex: 1 1 340px;
+  max-width: 400px;
+  min-width: 0;
+}
+.pg-seats .stub h2 {
+  margin: 10px 0 4px;
+  font-size: 36px;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}

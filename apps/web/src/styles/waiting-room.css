@@ -1,0 +1,61 @@
+/* The waiting room. Same structure as the status page and the checkout clock; tokens only. */
+.pg-waiting-room .wrap {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 40px 48px 80px;
+}
+.pg-waiting-room h1 {
+  margin: 16px 0 14px;
+  font-size: clamp(44px, 6vw, 76px);
+  line-height: 0.95;
+  letter-spacing: -0.035em;
+}
+.pg-waiting-room .lede {
+  margin: 0 0 36px;
+  font-size: 18px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.pg-waiting-room .queue {
+  padding: 24px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.pg-waiting-room .queue .top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 20px;
+}
+.pg-waiting-room .queue .place {
+  font-family: var(--font-display);
+  font-size: 88px;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--amber);
+}
+.pg-waiting-room .queue .track {
+  margin-top: 18px;
+  height: 3px;
+  background: var(--line-soft);
+  border-radius: 2px;
+}
+.pg-waiting-room .queue .track > div {
+  height: 3px;
+  background: var(--amber);
+  border-radius: 2px;
+  box-shadow: 0 0 10px rgba(255, 179, 71, 0.7);
+  transition: width 1s linear;
+}
+.pg-waiting-room .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 36px;
+}
+@media (max-width: 720px) {
+  .pg-waiting-room .wrap {
+    padding: 28px 20px 60px;
+  }
+}

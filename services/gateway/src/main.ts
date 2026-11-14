@@ -24,6 +24,12 @@ async function main(): Promise<void> {
   const secret = requireEnv('JWT_SECRET');
   if (secret.length < 32) throw new Error('JWT_SECRET must be at least 32 characters');
 
+  const devLogin = process.env.ENABLE_DEV_LOGIN === 'true' && process.env.NODE_ENV !== 'production';
+  if (devLogin)
+    console.warn(
+      '[gateway] DEMO SIGN-IN IS ON (ENABLE_DEV_LOGIN=true): anyone can get a token. Never use this in production.',
+    );
+
   const hub = new SeatStreamHub();
   const kafka = createKafka(requireEnv('KAFKA_BROKERS').split(','), 'gateway');
   const bookingHub = new BookingStreamHub();
@@ -52,6 +58,7 @@ async function main(): Promise<void> {
       activityHub,
       waitingRoom,
       jwtSecret: secret,
+      devLogin,
     }),
   );
   app.enableShutdownHooks();

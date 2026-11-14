@@ -1,0 +1,22 @@
+import type { Metadata, Viewport } from 'next';
+import type { ReactNode } from 'react';
+import '@/styles/gatepass.css';
+import '@/styles/states.css';
+
+export const metadata: Metadata = { title: 'Gatepass', description: 'Live events, seat by seat.' };
+export const viewport: Viewport = { width: 'device-width', initialScale: 1 };
+
+export default function RootLayout({ children }: { children: ReactNode }) {
+  return (
+    <html lang="en">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,500;1,6..96,500&family=Inter:wght@400;500;600&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body>{children}</body>
+    </html>
+  );
+}

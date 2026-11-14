@@ -6,3 +6,4 @@ export * from './gateway.module';
 export { salesStatus, SELLING_FAST_RATIO } from './http/events.controller';
 export * from './waiting-room/waiting-room';
 export * from './waiting-room/admission';
+export * from './http/dev-login.controller';

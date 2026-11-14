@@ -12,6 +12,7 @@ import type {
 import { BOOKINGS, BookingsController, PAYMENTS } from './http/bookings.controller';
 import { CATALOG, EventsController, HEARTBEAT_MS, INVENTORY } from './http/events.controller';
 import { OrganizerController, ANALYTICS } from './http/organizer.controller';
+import { DEV_LOGIN, DevLoginController } from './http/dev-login.controller';
 import { WaitingRoomController } from './http/waiting-room.controller';
 import { ADMISSION_CATALOG, AdmissionGate } from './waiting-room/admission';
 import { WaitingRoom } from './waiting-room/waiting-room';
@@ -31,6 +32,8 @@ export interface GatewayOptions {
   waitingRoom: WaitingRoom;
   jwtSecret: string;
   heartbeatMs?: number;
+  /** Demo sign-in. Off unless explicitly enabled (and never in production; see main.ts). */
+  devLogin?: boolean;
 }
 
 @Module({})
@@ -44,6 +47,7 @@ export class GatewayModule {
         TicketsController,
         OrganizerController,
         WaitingRoomController,
+        DevLoginController,
       ],
       providers: [
         Reflector,
@@ -57,6 +61,7 @@ export class GatewayModule {
         { provide: ANALYTICS, useValue: o.analytics },
         { provide: ActivityStreamHub, useValue: o.activityHub },
         { provide: WaitingRoom, useValue: o.waitingRoom },
+        { provide: DEV_LOGIN, useValue: o.devLogin ?? false },
         { provide: ADMISSION_CATALOG, useValue: o.catalog },
         AdmissionGate,
         { provide: SeatStreamHub, useValue: o.hub },

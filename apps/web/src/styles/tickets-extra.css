@@ -1,0 +1,51 @@
+/* Additions to the ticket page that the mockup has no room for: tap-to-enlarge QR, empty/refunded tags. Tokens only. */
+.pg-tickets .qr-btn {
+  display: block;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+  border-radius: 6px;
+}
+.pg-tickets .qr-btn svg {
+  display: block;
+}
+.qr-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(13, 10, 16, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.qr-sheet {
+  background: var(--cream);
+  color: var(--ink);
+  border-radius: 22px;
+  padding: 28px;
+  max-width: min(92vw, 520px);
+  width: 100%;
+  text-align: center;
+}
+.qr-sheet svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 440px;
+  margin: 0 auto;
+}
+.qr-sheet .code {
+  display: block;
+  margin: 16px 0 18px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--ink-muted);
+}
+.qr-sheet .btn-ghost {
+  color: var(--ink);
+  border-color: #b3a89a;
+}

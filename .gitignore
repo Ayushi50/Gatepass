@@ -5,3 +5,8 @@ coverage/
 *.log
 libs/events/src/gen/
 .DS_Store
+.next/
+next-env.d.ts
+test-results/
+playwright-report/
+visual/out/

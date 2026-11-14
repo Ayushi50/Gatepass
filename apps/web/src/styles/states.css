@@ -1,0 +1,34 @@
+/* States the mockups imply but do not draw: loading, empty, error, expired. Tokens only. */
+.state {
+  margin: 22px 0;
+  padding: 18px 20px;
+  border: 1px dashed var(--outline);
+  border-radius: 16px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.state strong {
+  font-weight: 600;
+  color: var(--text);
+}
+.state a {
+  font-weight: 600;
+}
+.state[data-tone='amber'] {
+  border-color: var(--amber);
+}
+.state[data-tone='danger'] {
+  border-color: var(--danger);
+}
+.state .btn {
+  margin-top: 14px;
+}
+.loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--muted);
+  margin: 22px 0;
+}

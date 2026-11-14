@@ -1,0 +1,142 @@
+/* Generated from design/organizer.html by scripts/scope-css.mjs. Do not restyle: change the design, then regenerate. */
+.pg-organizer .head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 40px;
+  padding: 32px 48px 0;
+}
+.pg-organizer .head h1 {
+  margin: 14px 0 6px;
+  font-size: clamp(44px, 5.6vw, 72px);
+  line-height: 0.95;
+  letter-spacing: -0.035em;
+}
+.pg-organizer .tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  padding: 32px 48px 0;
+}
+.pg-organizer .tile {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 22px 24px;
+}
+.pg-organizer .tile .n {
+  margin-top: 8px;
+  font-family: var(--font-display);
+  font-size: 56px;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+.pg-organizer .tile .n small {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  color: var(--muted);
+  letter-spacing: 0;
+}
+.pg-organizer .grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  padding: 24px 48px 72px;
+}
+.pg-organizer .card {
+  flex: 1 1 420px;
+  min-width: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 28px;
+}
+.pg-organizer .card h2 {
+  margin: 8px 0 20px;
+  font-size: 32px;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+.pg-organizer .bar-row {
+  margin-bottom: 20px;
+}
+.pg-organizer .bar-row .top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+.pg-organizer .bar-row .top b {
+  font-weight: 600;
+}
+.pg-organizer .bar {
+  height: 10px;
+  background: var(--line-soft);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.pg-organizer .bar > div {
+  height: 100%;
+  background: var(--amber);
+  border-radius: 999px;
+}
+.pg-organizer .refund {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line-soft);
+}
+.pg-organizer .refund .who {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.pg-organizer .refund .who b {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+}
+.pg-organizer .refund .who span {
+  font-size: 13px;
+  color: var(--muted);
+}
+.pg-organizer .refund .done {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--amber);
+}
+.pg-organizer .feed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pg-organizer .feed li {
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+  padding: 12px 0;
+  border-top: 1px solid var(--line-soft);
+  font-size: 14px;
+}
+.pg-organizer .feed li:first-child {
+  border-top: 0;
+}
+.pg-organizer .feed code {
+  font:
+    600 12px ui-monospace,
+    Menlo,
+    monospace;
+  color: var(--amber);
+  min-width: 130px;
+}
+.pg-organizer .feed code.bad {
+  color: var(--danger);
+}
+.pg-organizer .feed time {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--quiet);
+  white-space: nowrap;
+}

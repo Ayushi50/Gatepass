@@ -1,0 +1,33 @@
+/* Demo sign-in. Built only from design tokens and the shared .radio-card / .field / .btn pieces. */
+.pg-sign-in .wrap {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 40px 48px 80px;
+}
+.pg-sign-in h1 {
+  margin: 16px 0 14px;
+  font-size: clamp(44px, 6vw, 76px);
+  line-height: 0.95;
+  letter-spacing: -0.035em;
+}
+.pg-sign-in .lede {
+  margin: 0 0 30px;
+  font-size: 18px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.pg-sign-in .roles {
+  display: grid;
+  gap: 12px;
+  margin-top: 8px;
+}
+.pg-sign-in .error {
+  margin-top: 18px;
+  color: var(--danger);
+  font-size: 14px;
+}
+@media (max-width: 720px) {
+  .pg-sign-in .wrap {
+    padding: 28px 20px 60px;
+  }
+}

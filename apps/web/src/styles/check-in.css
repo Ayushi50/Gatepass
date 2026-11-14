@@ -1,0 +1,159 @@
+/* Generated from design/check-in.html by scripts/scope-css.mjs. Do not restyle: change the design, then regenerate. */
+.pg-check-in {
+  display: flex;
+  justify-content: center;
+}
+.pg-check-in .phone {
+  width: 100%;
+  max-width: 430px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 20px 28px;
+}
+.pg-check-in .top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0 18px;
+}
+.pg-check-in .top .logo {
+  font-size: 24px;
+}
+.pg-check-in .top .where {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.pg-check-in .viewfinder {
+  position: relative;
+  flex: none;
+  aspect-ratio: 1/1;
+  width: 100%;
+  background: #120d16;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  overflow: hidden;
+}
+.pg-check-in .corner {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  border: 3px solid var(--amber);
+}
+.pg-check-in .c1 {
+  top: 22px;
+  left: 22px;
+  border-right: 0;
+  border-bottom: 0;
+  border-top-left-radius: 14px;
+}
+.pg-check-in .c2 {
+  top: 22px;
+  right: 22px;
+  border-left: 0;
+  border-bottom: 0;
+  border-top-right-radius: 14px;
+}
+.pg-check-in .c3 {
+  bottom: 22px;
+  left: 22px;
+  border-right: 0;
+  border-top: 0;
+  border-bottom-left-radius: 14px;
+}
+.pg-check-in .c4 {
+  bottom: 22px;
+  right: 22px;
+  border-left: 0;
+  border-top: 0;
+  border-bottom-right-radius: 14px;
+}
+.pg-check-in .scan {
+  position: absolute;
+  left: 34px;
+  right: 34px;
+  height: 2px;
+  background: var(--amber);
+  box-shadow: 0 0 14px var(--amber-glow);
+  animation: sweep 2.6s ease-in-out infinite;
+}
+@keyframes sweep {
+  0%,
+  100% {
+    top: 18%;
+  }
+  50% {
+    top: 82%;
+  }
+}
+.pg-check-in .hint {
+  position: absolute;
+  bottom: 18px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+.pg-check-in .preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0;
+}
+.pg-check-in .preview .pill {
+  min-height: 40px;
+  padding: 0 16px;
+  font-size: 13px;
+}
+.pg-check-in .result {
+  flex: 1;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.pg-check-in .result h1 {
+  margin: 10px 0 8px;
+  font-size: 44px;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+.pg-check-in .result p {
+  margin: 0;
+  font-size: 15px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.pg-check-in .result[data-m='valid'] {
+  border-color: var(--amber);
+}
+.pg-check-in .result[data-m='used'] {
+  border-color: var(--danger);
+}
+.pg-check-in .result[data-m='used'] .kicker {
+  color: var(--danger);
+}
+.pg-check-in .badge {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--outline);
+}
+.pg-check-in .result[data-m='valid'] .badge {
+  background: var(--amber);
+  border-color: var(--amber);
+  box-shadow: 0 0 20px var(--amber-glow);
+}
+.pg-check-in .result[data-m='used'] .badge {
+  border-color: var(--danger);
+}
