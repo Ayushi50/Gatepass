@@ -12,5 +12,5 @@ Events from different topics have no common order. A message that fails its retr
 
 ## Trade-offs
 
-- The in-process chaos uses an in-memory broker, so it proves the logic and the transactions, not Kafka itself. The real-broker script is described in the README.
+- The in-process chaos uses an in-memory broker, so it proves the logic and the transactions, not Kafka itself. A chaos run that kills real service processes against a real Kafka broker was planned and deliberately skipped, so Kafka-specific behaviour (consumer-group rebalances, partition ordering, offset commits) is untested here.
 - Replaying republishes to every consumer of the topic, which relies on inboxes everywhere. That is already a rule for every consumer.
