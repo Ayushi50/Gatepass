@@ -2,6 +2,7 @@ import type { Pool } from 'pg';
 import { v7 as uuidv7 } from 'uuid';
 import { buildEnvelope } from '@gatepass/events';
 import { appendToOutbox, withTransaction } from '@gatepass/outbox';
+import { metrics } from '@gatepass/telemetry';
 import { InvalidQrTokenError, type QrKeyRing } from './qr-token';
 
 export interface TicketView {
@@ -89,6 +90,17 @@ export type CheckInResult =
  * other scan matches nothing and is told `used`. There is no read-then-write gap to race in.
  */
 export async function checkIn(
+  pool: Pool,
+  keys: QrKeyRing,
+  qrToken: string,
+  staffId: string,
+): Promise<CheckInResult> {
+  const result = await admit(pool, keys, qrToken, staffId);
+  metrics.checkIns().inc({ result: result.status });
+  return result;
+}
+
+async function admit(
   pool: Pool,
   keys: QrKeyRing,
   qrToken: string,

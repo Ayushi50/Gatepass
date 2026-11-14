@@ -1,6 +1,7 @@
 import type { Pool } from 'pg';
 import { buildEnvelope } from '@gatepass/events';
 import { appendToOutbox, withTransaction } from '@gatepass/outbox';
+import { metrics } from '@gatepass/telemetry';
 
 const PRODUCER = 'seat-inventory';
 
@@ -80,7 +81,10 @@ export async function sweepExpiredHolds(pool: Pool, opts: SweepOptions = {}): Pr
       );
       return true;
     });
-    if (did) released++;
+    if (did) {
+      released++;
+      metrics.holdsExpired().inc(); // after the commit
+    }
   }
   return released;
 }

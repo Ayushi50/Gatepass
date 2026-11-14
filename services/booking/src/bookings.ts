@@ -2,6 +2,7 @@ import type { Pool } from 'pg';
 import { v7 as uuidv7 } from 'uuid';
 import { buildEnvelope } from '@gatepass/events';
 import { appendToOutbox, withTransaction, type Queryable } from '@gatepass/outbox';
+import { metrics } from '@gatepass/telemetry';
 import { assertTransition, canTransition, type BookingState } from './state-machine';
 
 export const PRODUCER = 'booking';
@@ -73,6 +74,7 @@ export async function createBooking(
       id,
     );
   });
+  metrics.bookingsRequested().inc(); // after the commit: a rolled-back booking is not counted
   return getBooking(pool, id, now);
 }
 

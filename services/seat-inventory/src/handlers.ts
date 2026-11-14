@@ -1,6 +1,7 @@
 import type { Pool } from 'pg';
 import { buildEnvelope, type EventEnvelope } from '@gatepass/events';
 import { appendToOutbox, processOnce, type Queryable } from '@gatepass/outbox';
+import { metrics } from '@gatepass/telemetry';
 import { holdSeats } from './hold';
 
 export const PRODUCER = 'seat-inventory';
@@ -54,7 +55,8 @@ export async function onBookingRequested(
   const now = opts.now ?? Date.now;
   const holdExpiresAtMs = now() + (opts.holdTtlMs ?? DEFAULT_HOLD_TTL_MS);
 
-  await processOnce(pool, CONSUMER_GROUP, env, async (tx) => {
+  let held: 'ok' | string = 'ok';
+  const done = await processOnce(pool, CONSUMER_GROUP, env, async (tx) => {
     const result = await holdSeats(
       tx,
       { bookingId: p.bookingId, eventId: p.eventId, seatIds: p.seatIds },
@@ -87,9 +89,15 @@ export async function onBookingRequested(
             reason: result.reason,
           },
         });
+    held = result.ok ? 'ok' : result.reason;
     // keyed by event so all seat changes of one event stay ordered on one partition
     await appendToOutbox(tx, outgoing, p.eventId);
   });
+  // counted after the commit, and once per booking however often the request is delivered
+  if (done === 'processed') {
+    if (held === 'ok') metrics.holdsCreated().inc();
+    else metrics.holdsFailed().inc({ reason: held });
+  }
 }
 
 /** Locks a booking's held seats in a fixed order (so a sale, a release and a sweep cannot deadlock). */
@@ -122,7 +130,8 @@ export async function onPaymentSucceeded(pool: Pool, env: EventEnvelope): Promis
   if (env.payload.case !== 'paymentSucceeded') return;
   const payment = env.payload.value;
   const bookingId = payment.bookingId;
-  await processOnce(pool, CONSUMER_GROUP, env, async (tx) => {
+  let saleFailed = false;
+  const done = await processOnce(pool, CONSUMER_GROUP, env, async (tx) => {
     const locked = await lockHeldSeats(tx, bookingId);
     if (locked.length > 0) {
       await tx.query(
@@ -158,6 +167,7 @@ export async function onPaymentSucceeded(pool: Pool, env: EventEnvelope): Promis
     );
     if (already.rowCount) return; // already sold to this booking
 
+    saleFailed = true;
     await appendToOutbox(
       tx,
       buildEnvelope({
@@ -170,6 +180,7 @@ export async function onPaymentSucceeded(pool: Pool, env: EventEnvelope): Promis
       payment.eventId || bookingId,
     );
   });
+  if (done === 'processed' && saleFailed) metrics.salesFailed().inc();
 }
 
 /**

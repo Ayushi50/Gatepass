@@ -1,4 +1,5 @@
 import { decodeEnvelope, type EventEnvelope } from '@gatepass/events';
+import { SpanKind, inSpan, metrics } from '@gatepass/telemetry';
 import {
   DEFAULT_RETRY_POLICY,
   RetriesExhaustedError,
@@ -66,23 +67,63 @@ export function createMessageHandler(opts: MessageHandlerOptions) {
     });
   };
 
-  return async (message: IncomingMessage): Promise<HandleOutcome> => {
+  const consumed = metrics.consumed();
+  const duration = metrics.consumeDuration();
+  const retries = metrics.retries();
+  const deadLetters = metrics.deadLetters();
+  const consumer = opts.groupId;
+
+  const run = async (message: IncomingMessage): Promise<HandleOutcome> => {
     let envelope: EventEnvelope;
     try {
       if (!message.value) throw new Error('empty message value');
       envelope = decodeEnvelope(message.value);
     } catch (error) {
       await deadLetter(message, error, 0);
+      deadLetters.inc({ consumer });
       return 'dead-lettered';
     }
 
     try {
-      await runWithRetry(() => opts.handle(envelope, message), policy, opts.retryDeps);
+      await runWithRetry(() => opts.handle(envelope, message), policy, {
+        ...opts.retryDeps,
+        onRetry: (info) => {
+          retries.inc({ consumer });
+          opts.retryDeps?.onRetry?.(info);
+        },
+      });
       return 'handled';
     } catch (error) {
       const attempts = error instanceof RetriesExhaustedError ? error.attempts : 1;
       await deadLetter(message, error, attempts);
+      deadLetters.inc({ consumer });
       return 'dead-lettered';
     }
+  };
+
+  /** Each message is one span, a child of the span that wrote the event (carried in `traceparent`). */
+  return async (message: IncomingMessage): Promise<HandleOutcome> => {
+    const started = process.hrtime.bigint();
+    return inSpan(
+      `consume ${message.topic}`,
+      {
+        kind: SpanKind.CONSUMER,
+        parentHeaders: message.headers,
+        attributes: {
+          'messaging.system': 'kafka',
+          'messaging.destination': message.topic,
+          'messaging.consumer_group': consumer,
+          'gatepass.event_id': message.headers.eventId ?? '',
+          'gatepass.correlation_id': message.headers.correlationId ?? '',
+        },
+      },
+      async (span) => {
+        const outcome = await run(message);
+        span.setAttribute('gatepass.outcome', outcome);
+        consumed.inc({ consumer, outcome });
+        duration.observe({ consumer }, Number(process.hrtime.bigint() - started) / 1e9);
+        return outcome;
+      },
+    );
   };
 }

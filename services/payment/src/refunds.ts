@@ -1,6 +1,7 @@
 import type { Pool } from 'pg';
 import { buildEnvelope, type EventEnvelope } from '@gatepass/events';
 import { appendToOutbox, withTransaction, type Queryable } from '@gatepass/outbox';
+import { metrics } from '@gatepass/telemetry';
 import type { PaymentDeps } from './payments';
 import type { RefundWebhook } from './providers/provider';
 
@@ -158,6 +159,7 @@ export async function startRefund(deps: PaymentDeps, order: RefundOrder): Promis
   const changed = await withTransaction(deps.pool, (tx) =>
     completeRefund(tx, order.id, result.providerRefundRef, order.causationId),
   );
+  if (changed) metrics.refundsCompleted().inc({ kind: order.automatic ? 'automatic' : 'approved' });
   return changed ? 'completed' : 'already';
 }
 

@@ -2,6 +2,7 @@ import type { Pool } from 'pg';
 import type { Queryable } from '@gatepass/outbox';
 import { buildEnvelope, type EventEnvelope } from '@gatepass/events';
 import { appendToOutbox, processOnce } from '@gatepass/outbox';
+import { metrics } from '@gatepass/telemetry';
 import { PRODUCER, getBooking, transitionBooking } from './bookings';
 import { onRefundCompleted, onRefundRequested } from './refunds';
 
@@ -64,13 +65,15 @@ export async function onSeatsHeld(pool: Pool, env: EventEnvelope): Promise<void>
 export async function onSeatsHoldFailed(pool: Pool, env: EventEnvelope): Promise<void> {
   if (env.payload.case !== 'seatsHoldFailed') return;
   const p = env.payload.value;
-  await processOnce(pool, CONSUMER_GROUP, env, async (tx) => {
+  let applied = false;
+  const result = await processOnce(pool, CONSUMER_GROUP, env, async (tx) => {
     const outcome = await transitionBooking(tx, p.bookingId, 'CANCELLED', {
       causeEventId: env.eventId,
       cancelReason: 'hold_failed',
       onlyFrom: ['REQUESTED'], // a hold failure says nothing about a booking that already holds seats
     });
     if (outcome !== 'applied') return; // nothing changed, so nothing to announce
+    applied = true;
     await appendToOutbox(
       tx,
       buildEnvelope({
@@ -83,6 +86,7 @@ export async function onSeatsHoldFailed(pool: Pool, env: EventEnvelope): Promise
       p.bookingId,
     );
   });
+  if (result === 'processed' && applied) metrics.bookingsCancelled().inc({ reason: 'hold_failed' });
 }
 
 /** payment.succeeded -> HELD becomes PAID. Late or repeated ones are ignored by the state machine. */
@@ -102,13 +106,15 @@ export async function onPaymentSucceeded(pool: Pool, env: EventEnvelope): Promis
 export async function onSeatsSold(pool: Pool, env: EventEnvelope): Promise<void> {
   if (env.payload.case !== 'seatsSold') return;
   const p = env.payload.value;
-  await processOnce(pool, CONSUMER_GROUP, env, async (tx) => {
+  let applied = false;
+  const result = await processOnce(pool, CONSUMER_GROUP, env, async (tx) => {
     const outcome = await transitionBooking(tx, p.bookingId, 'CONFIRMED', {
       causeEventId: env.eventId,
       amountMinor: Number(p.amountMinor),
       currency: p.currency,
     });
     if (outcome !== 'applied') return;
+    applied = true;
     const b = await getBooking(tx, p.bookingId);
     await appendToOutbox(
       tx,
@@ -129,13 +135,16 @@ export async function onSeatsSold(pool: Pool, env: EventEnvelope): Promise<void>
       b.id,
     );
   });
+  // counted after the commit, and only when this delivery really changed the booking
+  if (result === 'processed' && applied) metrics.bookingsConfirmed().inc();
 }
 
 /** seats.released -> HELD becomes CANCELLED (payment failed; later also hold expired). */
 export async function onSeatsReleased(pool: Pool, env: EventEnvelope): Promise<void> {
   if (env.payload.case !== 'seatsReleased') return;
   const p = env.payload.value;
-  await processOnce(pool, CONSUMER_GROUP, env, async (tx) => {
+  let applied = false;
+  const result = await processOnce(pool, CONSUMER_GROUP, env, async (tx) => {
     // A release only cancels a PAID booking when the hold expired: then the seats were never sold
     // (a sale locks the seats a sweep needs, so both cannot happen) and the payment is refunded.
     // Any other release says nothing about a booking that is already paid.
@@ -145,6 +154,7 @@ export async function onSeatsReleased(pool: Pool, env: EventEnvelope): Promise<v
       onlyFrom: p.reason === 'hold_expired' ? ['REQUESTED', 'HELD', 'PAID'] : ['REQUESTED', 'HELD'],
     });
     if (outcome !== 'applied') return;
+    applied = true;
     await appendToOutbox(
       tx,
       buildEnvelope({
@@ -157,6 +167,8 @@ export async function onSeatsReleased(pool: Pool, env: EventEnvelope): Promise<v
       p.bookingId,
     );
   });
+  // counted after the commit, and only when this delivery really changed the booking
+  if (result === 'processed' && applied) metrics.bookingsCancelled().inc({ reason: p.reason });
 }
 
 /** The dispatcher used by both the Kafka consumer and in-process tests. */

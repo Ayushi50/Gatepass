@@ -3,6 +3,7 @@ import type { Pool } from 'pg';
 import { v7 as uuidv7 } from 'uuid';
 import { buildEnvelope } from '@gatepass/events';
 import { appendToOutbox, withTransaction, type Queryable } from '@gatepass/outbox';
+import { metrics } from '@gatepass/telemetry';
 import {
   PAYMENT_METHODS,
   ProviderRejectedError,
@@ -58,6 +59,7 @@ interface PaymentRow {
   method: PaymentMethod;
   state: PaymentState;
   provider_ref: string | null;
+  created_at: Date;
 }
 
 const KEY_PATTERN = /^[A-Za-z0-9_.:-]{8,128}$/;
@@ -194,10 +196,12 @@ async function submitToProvider(
     }));
   } catch (err) {
     if (err instanceof ProviderRejectedError) {
+      const after: (() => void)[] = [];
       await withTransaction(deps.pool, async (tx) => {
         const locked = await lockPayment(tx, payment.id);
-        if (locked) await applyOutcome(tx, locked, 'failed', { reason: err.message });
+        if (locked) await applyOutcome(tx, locked, 'failed', { reason: err.message }, after);
       });
+      after.forEach((f) => f());
       return result(payment.id, 'FAILED');
     }
     // unreachable or errored: the payment stays CREATED so a retry with the same key resumes it
@@ -238,6 +242,8 @@ async function applyOutcome(
   p: PaymentRow,
   outcome: 'succeeded' | 'failed',
   info: { providerRef?: string; providerPaymentId?: string; reason?: string },
+  /** Runs after the surrounding transaction COMMITS (metrics must not count a rolled-back change). */
+  afterCommit?: (() => void)[],
 ): Promise<OutcomeResult> {
   const target: PaymentState = outcome === 'succeeded' ? 'SUCCEEDED' : 'FAILED';
   if (p.state === target) return 'already';
@@ -288,6 +294,10 @@ async function applyOutcome(
           },
         });
   await appendToOutbox(tx, envelope, p.booking_id);
+  afterCommit?.push(() => {
+    metrics.paymentsFinished().inc({ outcome });
+    metrics.paymentDuration().observe({ outcome }, (Date.now() - p.created_at.getTime()) / 1000);
+  });
   return 'applied';
 }
 
@@ -314,7 +324,8 @@ export async function handleWebhook(
   if (!event) return 'ignored';
   if (event.kind === 'refund') return handleRefundWebhook(deps, event);
 
-  return withTransaction(deps.pool, async (tx) => {
+  const after: (() => void)[] = [];
+  const outcome = await withTransaction(deps.pool, async (tx) => {
     const recorded = await tx.query(
       `INSERT INTO webhook_events (provider, provider_event_id, payment_id, outcome)
        VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
@@ -336,11 +347,19 @@ export async function handleWebhook(
       return finish('amount_mismatch');
     }
     return finish(
-      await applyOutcome(tx, payment, event.outcome, {
-        providerRef: event.providerRef,
-        providerPaymentId: event.providerPaymentId,
-        reason: event.reason,
-      }),
+      await applyOutcome(
+        tx,
+        payment,
+        event.outcome,
+        {
+          providerRef: event.providerRef,
+          providerPaymentId: event.providerPaymentId,
+          reason: event.reason,
+        },
+        after,
+      ),
     );
   });
+  after.forEach((f) => f());
+  return outcome;
 }

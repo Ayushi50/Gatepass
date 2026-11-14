@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+import { collectedGauge, inSpan } from '@gatepass/telemetry';
 
 export interface OutboundMessage {
   topic: string;
@@ -46,12 +47,37 @@ interface OutboxRow {
  * retried, so no event is lost. A crash between "acked" and "marked" re-sends a batch, which
  * is why consumers must be idempotent (inbox).
  */
+/** Pools whose unsent events the `gatepass_outbox_pending` gauge reports on, by relay name. */
+const watched = new Map<string, Pool>();
+let gaugeReady = false;
+function watchOutbox(name: string, pool: Pool): void {
+  watched.set(name, pool);
+  if (gaugeReady) return;
+  gaugeReady = true;
+  collectedGauge(
+    'gatepass_outbox_pending',
+    'Events written but not yet published (a growing number means a stuck relay).',
+    ['relay'],
+    async (g) => {
+      g.reset();
+      for (const [relay, p] of watched) {
+        const { rows } = await p.query<{ n: string }>(
+          'SELECT count(*) AS n FROM outbox WHERE published_at IS NULL',
+        );
+        g.set({ relay }, Number(rows[0]!.n));
+      }
+    },
+  );
+}
+
 export class OutboxRelay {
   private running = false;
   private loop: Promise<void> | undefined;
   private wake: (() => void) | undefined;
 
-  constructor(private readonly opts: RelayOptions) {}
+  constructor(private readonly opts: RelayOptions) {
+    watchOutbox(opts.lockName ?? 'outbox-relay', opts.pool);
+  }
 
   /** Processes one batch. Returns the number of events published (0 if idle or not the leader). */
   async pollOnce(): Promise<number> {
@@ -82,18 +108,20 @@ export class OutboxRelay {
       }
 
       try {
-        await publisher.publishBatch(
-          rows.map((r) => ({
-            topic: r.event_type,
-            key: r.aggregate_id,
-            value: r.payload,
-            headers: {
-              ...r.headers,
-              eventId: r.event_id,
-              eventType: r.event_type,
-              correlationId: r.correlation_id,
-            },
-          })),
+        await inSpan('outbox.publish', { attributes: { 'gatepass.batch_size': rows.length } }, () =>
+          publisher.publishBatch(
+            rows.map((r) => ({
+              topic: r.event_type,
+              key: r.aggregate_id,
+              value: r.payload,
+              headers: {
+                ...r.headers,
+                eventId: r.event_id,
+                eventType: r.event_type,
+                correlationId: r.correlation_id,
+              },
+            })),
+          ),
         );
       } catch (err) {
         await client.query('ROLLBACK');

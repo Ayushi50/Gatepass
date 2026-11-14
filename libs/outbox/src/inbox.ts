@@ -1,4 +1,5 @@
 import type { Pool, PoolClient } from 'pg';
+import { metrics } from '@gatepass/telemetry';
 import { withTransaction } from './db';
 
 export type InboxResult = 'processed' | 'duplicate';
@@ -24,7 +25,10 @@ export async function processOnce(
        ON CONFLICT (consumer, event_id) DO NOTHING`,
       [consumer, event.eventId, event.eventType],
     );
-    if (inserted.rowCount === 0) return 'duplicate' as const;
+    if (inserted.rowCount === 0) {
+      metrics.duplicatesIgnored().inc({ consumer });
+      return 'duplicate' as const;
+    }
     await handler(tx);
     return 'processed' as const;
   });

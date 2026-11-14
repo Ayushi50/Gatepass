@@ -1,0 +1,19 @@
+{
+  "name": "@gatepass/telemetry-tests",
+  "version": "0.0.0",
+  "private": true,
+  "devDependencies": {
+    "@gatepass/booking": "workspace:*",
+    "@gatepass/db": "workspace:*",
+    "@gatepass/events": "workspace:*",
+    "@gatepass/messaging": "workspace:*",
+    "@gatepass/outbox": "workspace:*",
+    "@gatepass/payment": "workspace:*",
+    "@gatepass/seat-inventory": "workspace:*",
+    "@gatepass/telemetry": "workspace:*",
+    "@gatepass/testing": "workspace:*",
+    "@opentelemetry/sdk-trace": "^3.1.1",
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.1"
+  }
+}

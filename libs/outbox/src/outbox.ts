@@ -1,4 +1,5 @@
 import { encodeEnvelope, type EventEnvelope } from '@gatepass/events';
+import { currentTraceparent } from '@gatepass/telemetry';
 import type { Queryable } from './db';
 
 /**
@@ -14,6 +15,7 @@ export async function appendToOutbox(
   aggregateId: string,
 ): Promise<void> {
   const body = Buffer.from(encodeEnvelope(envelope));
+  const traceparent = currentTraceparent();
   await tx.query(
     `INSERT INTO outbox
        (event_id, event_type, aggregate_id, correlation_id, causation_id, version, payload, headers)
@@ -26,7 +28,9 @@ export async function appendToOutbox(
       envelope.causationId,
       envelope.version,
       body,
-      JSON.stringify({}),
+      // The trace context goes into the row, not onto a call: the relay may publish this event
+      // later, from another process, and the trace must still continue from here.
+      JSON.stringify(traceparent ? { traceparent } : {}),
     ],
   );
 }
