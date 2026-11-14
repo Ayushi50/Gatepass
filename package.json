@@ -1,6 +1,7 @@
 {
   "name": "gatepass",
   "private": true,
+  "packageManager": "pnpm@12.18.0",
   "version": "0.0.0",
   "engines": {
     "node": ">=20"
