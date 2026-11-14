@@ -284,6 +284,7 @@ describe('webhooks', () => {
       paymentId,
       amountMinor: 360000n,
       currency: 'INR',
+      eventId: 'neon-nights',
     });
     expect(
       (await pool.query('SELECT state FROM payables WHERE booking_id=$1', [id])).rows[0].state,
@@ -301,6 +302,7 @@ describe('webhooks', () => {
     const [ev] = await outbox(id, 'payment.failed');
     if (ev!.payload.case !== 'paymentFailed') throw new Error('wrong payload');
     expect(ev!.payload.value.reason).toBe('insufficient_funds');
+    expect(ev!.payload.value).toMatchObject({ eventId: 'neon-nights', userId: 'alice' });
     await expect(
       startPayment(deps(), pay(id, { idempotencyKey: 'retry-after-fail-1' })),
     ).rejects.toMatchObject({

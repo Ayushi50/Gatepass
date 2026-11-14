@@ -136,12 +136,15 @@ message PaymentSucceeded {
   int64 amount_minor = 3;
   string currency = 4;
   string provider_ref = 5;       // provider's charge/payment id
+  string event_id = 6;           // lets consumers attribute the payment to a show without a lookup
 }
 
 message PaymentFailed {
   string booking_id = 1;
   string payment_id = 2;
   string reason = 3;
+  string event_id = 4;
+  string user_id = 5;
 }
 
 message RefundRequested {

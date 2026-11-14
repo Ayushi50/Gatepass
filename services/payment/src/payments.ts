@@ -253,10 +253,11 @@ async function applyOutcome(
       outcome === 'failed' ? (info.reason ?? 'failed') : null,
     ],
   );
-  await tx.query('UPDATE payables SET state = $2, updated_at = now() WHERE booking_id = $1', [
-    p.booking_id,
-    outcome === 'succeeded' ? 'paid' : 'closed',
-  ]);
+  const payable = await tx.query<{ event_id: string }>(
+    'UPDATE payables SET state = $2, updated_at = now() WHERE booking_id = $1 RETURNING event_id',
+    [p.booking_id, outcome === 'succeeded' ? 'paid' : 'closed'],
+  );
+  const eventId = payable.rows[0]?.event_id ?? '';
 
   const envelope =
     outcome === 'succeeded'
@@ -270,13 +271,20 @@ async function applyOutcome(
             amountMinor: BigInt(p.amount_minor),
             currency: p.currency,
             providerRef: info.providerRef ?? p.provider_ref ?? '',
+            eventId,
           },
         })
       : buildEnvelope({
           eventType: 'payment.failed',
           correlationId: p.booking_id,
           producer: PRODUCER,
-          payload: { bookingId: p.booking_id, paymentId: p.id, reason: info.reason ?? 'failed' },
+          payload: {
+            bookingId: p.booking_id,
+            paymentId: p.id,
+            reason: info.reason ?? 'failed',
+            eventId,
+            userId: p.user_id,
+          },
         });
   await appendToOutbox(tx, envelope, p.booking_id);
   return 'applied';
