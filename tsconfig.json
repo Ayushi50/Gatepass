@@ -10,6 +10,7 @@
     "services/*/src/**/*.ts",
     "services/*/test/**/*.ts",
     "services/*/scripts/**/*.ts",
-    "tests/*/*.ts"
+    "tests/*/*.ts",
+    "libs/*/bin/**/*.ts"
   ]
 }

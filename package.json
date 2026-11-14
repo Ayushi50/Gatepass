@@ -13,7 +13,8 @@
     "typecheck": "pnpm generate && tsc -p tsconfig.json --noEmit",
     "test": "pnpm generate && jest --selectProjects unit",
     "schema:lint": "pnpm --filter @gatepass/events lint",
-    "schema:breaking": "pnpm --filter @gatepass/events breaking"
+    "schema:breaking": "pnpm --filter @gatepass/events breaking",
+    "replay": "ts-node --transpile-only libs/messaging/bin/replay.ts"
   },
   "devDependencies": {
     "@bufbuild/buf": "^1.75.0",
