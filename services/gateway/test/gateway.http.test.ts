@@ -17,6 +17,7 @@ import {
   type AnalyticsClient,
   type PaymentClient,
   type TicketClient,
+  WaitingRoom,
 } from '../src';
 
 const SECRET = 'a-test-secret-that-is-long-enough-123';
@@ -42,6 +43,7 @@ const ev = (id: string, title: string, minPriceMinor: number) => ({
   venue: 'Hall',
   startsAt: '2026-12-06T14:00:00.000Z',
   currency: 'INR',
+  waitingRoom: false,
   minPriceMinor,
   tiers: [],
 });
@@ -56,6 +58,7 @@ const createCalls: unknown[] = [];
 const payCalls: unknown[] = [];
 
 const catalog: CatalogClient = {
+  getEvent: async (id) => ({ ...ev(id, id, 100000) }),
   listEvents: async () => [
     ev('neon-nights', 'Neon Nights Live', 120000),
     ev('jazz-roof', 'Jazz on the Roof', 90000),
@@ -74,6 +77,7 @@ const inventory: InventoryClient = {
   },
 };
 const bookings: BookingClient = {
+  approveRefund: async (refundId) => ({ refundId, state: 'APPROVED' }),
   create: async (input) => {
     createCalls.push(input);
     if (!input.seatIds?.length)
@@ -133,6 +137,7 @@ const ticketRow = (id: string, status: 'valid' | 'used' = 'valid') => ({
   status,
 });
 const tickets: TicketClient = {
+  requestRefund: async () => ({ refundId: 'rf-1', status: 'refund_requested' }),
   list: async (userId) => (userId === 'alice' ? [ticketRow('C6'), ticketRow('C7')] : []),
   forBooking: async () => ({ issued: ticketsIssued, count: ticketsIssued ? 2 : 0 }),
   checkIn: async (qrToken, staffId) => {
@@ -155,6 +160,7 @@ const feedItem = (id: string, text: string) => ({
   at: '2026-12-06T10:00:00.000Z',
 });
 const analytics: AnalyticsClient = {
+  refunds: async () => [],
   summary: async (eventId, organizerId) => {
     if (eventId === 'unknown') throw new DownstreamError(404, 'event unknown not found');
     if (organizerId !== 'org-1') throw new DownstreamError(403, 'not your event');
@@ -166,6 +172,7 @@ const analytics: AnalyticsClient = {
       total: 1200,
       held: 36,
       left: 322,
+      refundRequests: 5,
       tiers: [{ name: 'Front', sold: 288, total: 300 }],
     };
   },
@@ -194,6 +201,7 @@ beforeAll(async () => {
         hub,
         bookingHub,
         activityHub,
+        waitingRoom: new WaitingRoom({} as never, { admitPerSecond: 5, admissionTtlSeconds: 300 }),
         jwtSecret: SECRET,
         heartbeatMs: 60_000,
       }),

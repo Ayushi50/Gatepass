@@ -1,8 +1,10 @@
 import {
   Controller,
   Get,
+  HttpCode,
   Inject,
   Param,
+  Post,
   Req,
   Sse,
   UseGuards,
@@ -10,7 +12,8 @@ import {
 } from '@nestjs/common';
 import { ReplaySubject, finalize, interval, map, merge, startWith, type Observable } from 'rxjs';
 import { AuthGuard, Roles, type AuthedRequest } from '../auth/auth.guard';
-import type { ActivityItem, AnalyticsClient } from '../clients/clients';
+import type { ActivityItem, AnalyticsClient, BookingClient } from '../clients/clients';
+import { BOOKINGS } from './bookings.controller';
 import { ActivityStreamHub } from '../seat-stream/seat-stream';
 import { relay } from './downstream';
 import { HEARTBEAT_MS } from './events.controller';
@@ -18,20 +21,39 @@ import { HEARTBEAT_MS } from './events.controller';
 export const ANALYTICS = Symbol('ANALYTICS');
 
 /** Organizer dashboard. Every call is scoped to the organizer in the token. */
-@Controller('api/organizer')
+@Controller('api')
 @UseGuards(AuthGuard)
 export class OrganizerController {
   constructor(
     @Inject(ANALYTICS) private readonly analytics: AnalyticsClient,
+    @Inject(BOOKINGS) private readonly bookings: BookingClient,
     private readonly activityHub: ActivityStreamHub,
     @Inject(HEARTBEAT_MS) private readonly heartbeatMs: number,
   ) {}
 
   /** The tiles and tier bars: sold, held, left, and sold/total per tier. */
-  @Get('events/:id/summary')
+  @Get('organizer/events/:id/summary')
   @Roles('organizer')
   summary(@Req() req: AuthedRequest, @Param('id') id: string) {
     return relay(() => this.analytics.summary(id, req.user!.sub));
+  }
+
+  /** The "Refund requests" list: open requests first, with who, which seat and how much. */
+  @Get('organizer/events/:id/refunds')
+  @Roles('organizer')
+  refunds(@Req() req: AuthedRequest, @Param('id') id: string) {
+    return relay(() => this.analytics.refunds(id, req.user!.sub));
+  }
+
+  /**
+   * The organizer approves a refund. Only the organizer of that show may; approving again is
+   * harmless and just reports the current state.
+   */
+  @Post('refunds/:id/approve')
+  @Roles('organizer')
+  @HttpCode(200)
+  approveRefund(@Req() req: AuthedRequest, @Param('id') id: string) {
+    return relay(() => this.bookings.approveRefund(id, req.user!.sub));
   }
 
   /**
@@ -40,7 +62,7 @@ export class OrganizerController {
    * drop one it already has from the snapshot. The hub is subscribed BEFORE the snapshot is
    * read and buffered, so nothing is lost in between.
    */
-  @Sse('events/:id/activity')
+  @Sse('organizer/events/:id/activity')
   @Roles('organizer')
   async activity(
     @Req() req: AuthedRequest,

@@ -19,6 +19,7 @@ import { AuthGuard, Roles, type AuthedRequest } from '../auth/auth.guard';
 import type { BookingClient, PaymentClient, TicketClient } from '../clients/clients';
 import { TICKETS } from './tickets.controller';
 import { BookingStreamHub, type BookingUpdate } from '../seat-stream/seat-stream';
+import { AdmissionGate } from '../waiting-room/admission';
 import { HEARTBEAT_MS } from './events.controller';
 import { relay } from './downstream';
 
@@ -33,6 +34,7 @@ export class BookingsController {
     @Inject(PAYMENTS) private readonly payments: PaymentClient,
     @Inject(TICKETS) private readonly tickets: TicketClient,
     private readonly bookingHub: BookingStreamHub,
+    private readonly gate: AdmissionGate,
     @Inject(HEARTBEAT_MS) private readonly heartbeatMs: number,
   ) {}
 
@@ -56,7 +58,14 @@ export class BookingsController {
    */
   @Post('bookings')
   @Roles('attendee')
-  create(@Req() req: AuthedRequest, @Body() body: { eventId?: string; seatIds?: string[] }) {
+  async create(
+    @Req() req: AuthedRequest,
+    @Body() body: { eventId?: string; seatIds?: string[] },
+    @Headers('x-admission-token') admissionToken: string | undefined,
+  ) {
+    // a high-demand show needs a waiting-room admission; checked before anything is held
+    if (body?.eventId)
+      await relay(() => this.gate.check(body.eventId as string, req.user!.sub, admissionToken));
     return relay(() =>
       this.bookings.create({
         eventId: body?.eventId as string,

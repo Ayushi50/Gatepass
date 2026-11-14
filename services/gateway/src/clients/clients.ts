@@ -19,6 +19,7 @@ export interface EventSummary {
   venue: string;
   startsAt: string;
   currency: string;
+  waitingRoom: boolean;
   minPriceMinor: number;
   tiers: { name: string; priceMinor: number; seatCount: number }[];
 }
@@ -95,11 +96,13 @@ export interface OrganizerSummary {
   total: number;
   held: number;
   left: number;
+  refundRequests: number;
   tiers: { name: string; sold: number; total: number }[];
 }
 
 export interface CatalogClient {
   listEvents(): Promise<EventSummary[]>;
+  getEvent(id: string): Promise<EventSummary>;
 }
 export interface InventoryClient {
   getSeats(eventId: string): Promise<SeatView[]>;
@@ -118,14 +121,30 @@ export interface TicketClient {
   list(userId: string): Promise<TicketView[]>;
   forBooking(bookingId: string): Promise<{ issued: boolean; count: number }>;
   checkIn(qrToken: string, staffId: string): Promise<CheckInResponse>;
+  requestRefund(ticketId: string, userId: string): Promise<{ refundId: string; status: string }>;
 }
+export interface RefundItem {
+  id: string;
+  bookingId: string;
+  userId: string;
+  seatId: string;
+  amountMinor: number;
+  currency: string;
+  state: 'requested' | 'approved' | 'completed';
+}
+
 export interface AnalyticsClient {
+  refunds(eventId: string, organizerId: string): Promise<RefundItem[]>;
   summary(eventId: string, organizerId: string): Promise<OrganizerSummary>;
   activity(eventId: string, organizerId: string, limit?: number): Promise<ActivityItem[]>;
 }
 export interface BookingClient {
   create(input: { eventId: string; userId: string; seatIds: string[] }): Promise<BookingView>;
   get(id: string): Promise<BookingView>;
+  approveRefund(
+    refundId: string,
+    organizerId: string,
+  ): Promise<{ refundId: string; state: string }>;
 }
 
 async function call<T>(baseUrl: string, path: string, init?: RequestInit): Promise<T> {
@@ -157,6 +176,9 @@ export class HttpCatalogClient implements CatalogClient {
   listEvents() {
     return call<EventSummary[]>(this.baseUrl, '/events');
   }
+  getEvent(id: string) {
+    return call<EventSummary>(this.baseUrl, `/events/${encodeURIComponent(id)}`);
+  }
 }
 
 export class HttpInventoryClient implements InventoryClient {
@@ -183,6 +205,13 @@ export class HttpBookingClient implements BookingClient {
   get(id: string) {
     return call<BookingView>(this.baseUrl, `/bookings/${encodeURIComponent(id)}`);
   }
+  approveRefund(refundId: string, organizerId: string) {
+    return call<{ refundId: string; state: string }>(
+      this.baseUrl,
+      `/refunds/${encodeURIComponent(refundId)}/approve`,
+      { method: 'POST', body: JSON.stringify({ organizerId }) },
+    );
+  }
 }
 
 export class HttpPaymentClient implements PaymentClient {
@@ -205,6 +234,13 @@ export class HttpTicketClient implements TicketClient {
   constructor(private readonly baseUrl: string) {}
   list(userId: string) {
     return call<TicketView[]>(this.baseUrl, `/tickets?userId=${encodeURIComponent(userId)}`);
+  }
+  requestRefund(ticketId: string, userId: string) {
+    return call<{ refundId: string; status: string }>(
+      this.baseUrl,
+      `/tickets/${encodeURIComponent(ticketId)}/refund`,
+      { method: 'POST', body: JSON.stringify({ userId }) },
+    );
   }
   forBooking(bookingId: string) {
     return call<{ issued: boolean; count: number }>(
@@ -238,6 +274,12 @@ export class HttpAnalyticsClient implements AnalyticsClient {
     return call<OrganizerSummary>(
       this.baseUrl,
       `/organizer/events/${encodeURIComponent(eventId)}/summary?organizerId=${encodeURIComponent(organizerId)}`,
+    );
+  }
+  refunds(eventId: string, organizerId: string) {
+    return call<RefundItem[]>(
+      this.baseUrl,
+      `/organizer/events/${encodeURIComponent(eventId)}/refunds?organizerId=${encodeURIComponent(organizerId)}`,
     );
   }
   activity(eventId: string, organizerId: string, limit = 20) {

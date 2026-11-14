@@ -63,3 +63,75 @@ export function verifyToken(token: string, secret: string, now: () => number = D
   }
   return claims as Claims;
 }
+
+export interface AdmissionClaims {
+  sub: string;
+  evt: string; // the event the waiting room admitted this user to
+  iat: number;
+  exp: number;
+}
+
+/**
+ * A waiting-room admission token: HS256, tied to ONE user and ONE event, marked `typ: admission`
+ * and carrying no role, so it can never be mistaken for (or used as) an access token, and an
+ * access token can never pass as an admission.
+ */
+export function signAdmissionToken(
+  claims: { sub: string; eventId: string },
+  secret: string,
+  opts: { ttlSeconds: number; now?: () => number },
+): string {
+  const iat = Math.floor((opts.now ?? Date.now)() / 1000);
+  const head = b64(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const payload = b64(
+    JSON.stringify({
+      sub: claims.sub,
+      evt: claims.eventId,
+      typ: 'admission',
+      iat,
+      exp: iat + opts.ttlSeconds,
+    }),
+  );
+  return `${head}.${payload}.${b64(sign(`${head}.${payload}`, secret))}`;
+}
+
+export function verifyAdmissionToken(
+  token: string,
+  secret: string,
+  now: () => number = Date.now,
+): AdmissionClaims {
+  const parts = token.split('.');
+  if (parts.length !== 3) throw new InvalidTokenError('malformed token');
+  const [head, payload, sig] = parts as [string, string, string];
+  let header: { alg?: string };
+  try {
+    header = JSON.parse(Buffer.from(head, 'base64url').toString('utf8'));
+  } catch {
+    throw new InvalidTokenError('malformed token');
+  }
+  if (header.alg !== 'HS256') throw new InvalidTokenError('unsupported algorithm');
+  const expected = sign(`${head}.${payload}`, secret);
+  const given = Buffer.from(sig, 'base64url');
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
+    throw new InvalidTokenError('bad signature');
+  }
+  let claims: Partial<AdmissionClaims> & { typ?: string };
+  try {
+    claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+  } catch {
+    throw new InvalidTokenError('malformed token');
+  }
+  if (claims.typ !== 'admission') throw new InvalidTokenError('not an admission token');
+  if (
+    typeof claims.sub !== 'string' ||
+    !claims.sub ||
+    typeof claims.evt !== 'string' ||
+    !claims.evt
+  ) {
+    throw new InvalidTokenError('malformed token');
+  }
+  if (typeof claims.exp !== 'number' || claims.exp * 1000 <= now()) {
+    throw new InvalidTokenError('token expired');
+  }
+  return claims as AdmissionClaims;
+}

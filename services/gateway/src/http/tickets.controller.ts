@@ -3,7 +3,9 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Inject,
+  Param,
   Post,
   Req,
   Res,
@@ -25,6 +27,17 @@ export class TicketsController {
   @Roles('attendee')
   list(@Req() req: AuthedRequest) {
     return relay(() => this.tickets.list(req.user!.sub));
+  }
+
+  /**
+   * "Request a refund" (design/tickets.html). The ticket is locked at once (it will no longer scan)
+   * and the organizer is asked to approve. 404 if it is not yours, 409 if it cannot be refunded.
+   */
+  @Post('tickets/:id/refund')
+  @Roles('attendee')
+  @HttpCode(202)
+  requestRefund(@Req() req: AuthedRequest, @Param('id') id: string) {
+    return relay(() => this.tickets.requestRefund(id, req.user!.sub));
   }
 
   /**

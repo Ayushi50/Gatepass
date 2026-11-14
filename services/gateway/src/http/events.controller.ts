@@ -43,6 +43,7 @@ export class EventsController {
         venue: e.venue,
         startsAt: e.startsAt,
         currency: e.currency,
+        waitingRoom: e.waitingRoom,
         minPrice: e.minPriceMinor / 100, // major units, as the UI shows "From ₹1,200"
         status: salesStatus(c.total, c.available),
         availability: { total: c.total, available: c.available },

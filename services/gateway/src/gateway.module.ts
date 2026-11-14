@@ -12,6 +12,9 @@ import type {
 import { BOOKINGS, BookingsController, PAYMENTS } from './http/bookings.controller';
 import { CATALOG, EventsController, HEARTBEAT_MS, INVENTORY } from './http/events.controller';
 import { OrganizerController, ANALYTICS } from './http/organizer.controller';
+import { WaitingRoomController } from './http/waiting-room.controller';
+import { ADMISSION_CATALOG, AdmissionGate } from './waiting-room/admission';
+import { WaitingRoom } from './waiting-room/waiting-room';
 import { TICKETS, TicketsController } from './http/tickets.controller';
 import { ActivityStreamHub, BookingStreamHub, SeatStreamHub } from './seat-stream/seat-stream';
 
@@ -25,6 +28,7 @@ export interface GatewayOptions {
   hub: SeatStreamHub;
   bookingHub: BookingStreamHub;
   activityHub: ActivityStreamHub;
+  waitingRoom: WaitingRoom;
   jwtSecret: string;
   heartbeatMs?: number;
 }
@@ -34,7 +38,13 @@ export class GatewayModule {
   static forRoot(o: GatewayOptions): DynamicModule {
     return {
       module: GatewayModule,
-      controllers: [EventsController, BookingsController, TicketsController, OrganizerController],
+      controllers: [
+        EventsController,
+        BookingsController,
+        TicketsController,
+        OrganizerController,
+        WaitingRoomController,
+      ],
       providers: [
         Reflector,
         AuthGuard,
@@ -46,6 +56,9 @@ export class GatewayModule {
         { provide: TICKETS, useValue: o.tickets },
         { provide: ANALYTICS, useValue: o.analytics },
         { provide: ActivityStreamHub, useValue: o.activityHub },
+        { provide: WaitingRoom, useValue: o.waitingRoom },
+        { provide: ADMISSION_CATALOG, useValue: o.catalog },
+        AdmissionGate,
         { provide: SeatStreamHub, useValue: o.hub },
         { provide: BookingStreamHub, useValue: o.bookingHub },
         { provide: HEARTBEAT_MS, useValue: o.heartbeatMs ?? 25_000 },
