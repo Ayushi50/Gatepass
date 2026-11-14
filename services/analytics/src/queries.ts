@@ -77,6 +77,7 @@ export async function getActivity(
 ): Promise<ActivityItem[]> {
   await authorize(pool, eventId, organizerId);
   const { rows } = await pool.query<{
+    source_event_id: string;
     event_id: string;
     booking_id: string;
     type: string;
@@ -84,11 +85,12 @@ export async function getActivity(
     failed: boolean;
     occurred_at: Date;
   }>(
-    `SELECT event_id, booking_id, type, text, failed, occurred_at FROM activity
+    `SELECT source_event_id, event_id, booking_id, type, text, failed, occurred_at FROM activity
       WHERE event_id = $1 ORDER BY occurred_at DESC, id DESC LIMIT $2`,
     [eventId, Math.min(Math.max(limit, 1), 100)],
   );
   return rows.map((r) => ({
+    id: r.source_event_id,
     eventId: r.event_id,
     bookingId: r.booking_id,
     type: r.type,

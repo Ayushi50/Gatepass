@@ -16,7 +16,8 @@ import {
 } from '@nestjs/common';
 import { ReplaySubject, finalize, interval, map, merge, startWith, type Observable } from 'rxjs';
 import { AuthGuard, Roles, type AuthedRequest } from '../auth/auth.guard';
-import type { BookingClient, PaymentClient } from '../clients/clients';
+import type { BookingClient, PaymentClient, TicketClient } from '../clients/clients';
+import { TICKETS } from './tickets.controller';
 import { BookingStreamHub, type BookingUpdate } from '../seat-stream/seat-stream';
 import { HEARTBEAT_MS } from './events.controller';
 import { relay } from './downstream';
@@ -30,9 +31,18 @@ export class BookingsController {
   constructor(
     @Inject(BOOKINGS) private readonly bookings: BookingClient,
     @Inject(PAYMENTS) private readonly payments: PaymentClient,
+    @Inject(TICKETS) private readonly tickets: TicketClient,
     private readonly bookingHub: BookingStreamHub,
     @Inject(HEARTBEAT_MS) private readonly heartbeatMs: number,
   ) {}
+
+  private async ticketsIssued(bookingId: string): Promise<boolean> {
+    try {
+      return (await this.tickets.forBooking(bookingId)).issued;
+    } catch {
+      return false; // the live `ticket.issued` event will still turn the light on
+    }
+  }
 
   private async ownedBooking(userId: string, id: string) {
     const booking = await relay(() => this.bookings.get(id));
@@ -118,6 +128,8 @@ export class BookingsController {
           holdExpiresAt: b.holdExpiresAt,
           cancelReason: b.cancelReason,
           serverTime: b.serverTime,
+          // the third light: only a confirmed booking can have tickets
+          ticketsIssued: b.state === 'CONFIRMED' ? await this.ticketsIssued(id) : false,
         },
       };
     } catch (err) {

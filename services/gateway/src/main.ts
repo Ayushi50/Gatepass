@@ -4,12 +4,19 @@ import { requireEnv } from '@gatepass/db';
 import { KafkaEventPublisher, createKafka } from '@gatepass/messaging';
 import {
   HttpBookingClient,
+  HttpAnalyticsClient,
   HttpCatalogClient,
   HttpInventoryClient,
   HttpPaymentClient,
+  HttpTicketClient,
 } from './clients/clients';
 import { GatewayModule } from './gateway.module';
-import { BookingStreamHub, SeatStreamHub, startStreamBridge } from './seat-stream/seat-stream';
+import {
+  ActivityStreamHub,
+  BookingStreamHub,
+  SeatStreamHub,
+  startStreamBridge,
+} from './seat-stream/seat-stream';
 
 async function main(): Promise<void> {
   const secret = requireEnv('JWT_SECRET');
@@ -18,7 +25,8 @@ async function main(): Promise<void> {
   const hub = new SeatStreamHub();
   const kafka = createKafka(requireEnv('KAFKA_BROKERS').split(','), 'gateway');
   const bookingHub = new BookingStreamHub();
-  startStreamBridge(kafka, new KafkaEventPublisher(kafka), hub, bookingHub);
+  const activityHub = new ActivityStreamHub();
+  startStreamBridge(kafka, new KafkaEventPublisher(kafka), hub, bookingHub, activityHub);
 
   const app = await NestFactory.create(
     GatewayModule.forRoot({
@@ -26,8 +34,11 @@ async function main(): Promise<void> {
       inventory: new HttpInventoryClient(requireEnv('SEAT_INVENTORY_URL')),
       bookings: new HttpBookingClient(requireEnv('BOOKING_URL')),
       payments: new HttpPaymentClient(requireEnv('PAYMENT_URL')),
+      tickets: new HttpTicketClient(requireEnv('TICKET_URL')),
+      analytics: new HttpAnalyticsClient(requireEnv('ANALYTICS_URL')),
       hub,
       bookingHub,
+      activityHub,
       jwtSecret: secret,
     }),
   );

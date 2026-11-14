@@ -56,6 +56,48 @@ export interface PaymentView {
   status: 'created' | 'processing' | 'succeeded' | 'failed';
 }
 
+export interface TicketView {
+  id: string;
+  code: string;
+  bookingId: string;
+  eventId: string;
+  eventTitle: string;
+  startsAt: string;
+  venue: string;
+  row: string;
+  seat: string;
+  tier: string;
+  qrToken: string;
+  status: 'valid' | 'used';
+}
+
+/** The ticket service's answer to a scan. `httpStatus` is 200 valid, 409 used, 404 invalid. */
+export interface CheckInResponse {
+  httpStatus: 200 | 404 | 409;
+  body: { status: 'valid' | 'used' | 'invalid'; [k: string]: unknown };
+}
+
+export interface ActivityItem {
+  id: string;
+  eventId: string;
+  bookingId: string;
+  type: string;
+  text: string;
+  failed: boolean;
+  at: string;
+}
+
+export interface OrganizerSummary {
+  eventId: string;
+  title: string;
+  startsAt: string;
+  sold: number;
+  total: number;
+  held: number;
+  left: number;
+  tiers: { name: string; sold: number; total: number }[];
+}
+
 export interface CatalogClient {
   listEvents(): Promise<EventSummary[]>;
 }
@@ -71,6 +113,15 @@ export interface PaymentClient {
     token: string;
     idempotencyKey: string;
   }): Promise<PaymentView>;
+}
+export interface TicketClient {
+  list(userId: string): Promise<TicketView[]>;
+  forBooking(bookingId: string): Promise<{ issued: boolean; count: number }>;
+  checkIn(qrToken: string, staffId: string): Promise<CheckInResponse>;
+}
+export interface AnalyticsClient {
+  summary(eventId: string, organizerId: string): Promise<OrganizerSummary>;
+  activity(eventId: string, organizerId: string, limit?: number): Promise<ActivityItem[]>;
 }
 export interface BookingClient {
   create(input: { eventId: string; userId: string; seatIds: string[] }): Promise<BookingView>;
@@ -147,5 +198,52 @@ export class HttpPaymentClient implements PaymentClient {
       method: 'POST',
       body: JSON.stringify(input),
     });
+  }
+}
+
+export class HttpTicketClient implements TicketClient {
+  constructor(private readonly baseUrl: string) {}
+  list(userId: string) {
+    return call<TicketView[]>(this.baseUrl, `/tickets?userId=${encodeURIComponent(userId)}`);
+  }
+  forBooking(bookingId: string) {
+    return call<{ issued: boolean; count: number }>(
+      this.baseUrl,
+      `/bookings/${encodeURIComponent(bookingId)}/tickets`,
+    );
+  }
+  async checkIn(qrToken: string, staffId: string): Promise<CheckInResponse> {
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}/checkin`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ qrToken, staffId }),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch (err) {
+      throw new DownstreamError(503, `service unreachable: ${(err as Error).message}`);
+    }
+    // 200 / 409 / 404 are all normal answers to a scan; anything else is a real failure
+    if (res.status === 200 || res.status === 409 || res.status === 404) {
+      return { httpStatus: res.status, body: (await res.json()) as CheckInResponse['body'] };
+    }
+    throw new DownstreamError(res.status === 400 ? 400 : 502, `check-in failed (${res.status})`);
+  }
+}
+
+export class HttpAnalyticsClient implements AnalyticsClient {
+  constructor(private readonly baseUrl: string) {}
+  summary(eventId: string, organizerId: string) {
+    return call<OrganizerSummary>(
+      this.baseUrl,
+      `/organizer/events/${encodeURIComponent(eventId)}/summary?organizerId=${encodeURIComponent(organizerId)}`,
+    );
+  }
+  activity(eventId: string, organizerId: string, limit = 20) {
+    return call<ActivityItem[]>(
+      this.baseUrl,
+      `/organizer/events/${encodeURIComponent(eventId)}/activity?organizerId=${encodeURIComponent(organizerId)}&limit=${limit}`,
+    );
   }
 }

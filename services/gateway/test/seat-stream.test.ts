@@ -112,6 +112,12 @@ describe('toBookingUpdate', () => {
         producer: 'b',
         payload: { bookingId: 'b1', eventId: 'ev', reason: 'payment_failed' },
       }),
+      buildEnvelope({
+        eventType: 'ticket.issued',
+        correlationId: 'b1',
+        producer: 't',
+        payload: { bookingId: 'b1', eventId: 'ev', userId: 'u', tickets: [] },
+      }),
     ];
     expect(cases.map((e) => toBookingUpdate(e))).toEqual([
       { bookingId: 'b1', type: 'seats.held', at: at(cases[0]!) },
@@ -121,6 +127,7 @@ describe('toBookingUpdate', () => {
       { bookingId: 'b1', type: 'seats.sold', at: at(cases[4]!) },
       { bookingId: 'b1', type: 'booking.confirmed', at: at(cases[5]!) },
       { bookingId: 'b1', type: 'booking.cancelled', reason: 'payment_failed', at: at(cases[6]!) },
+      { bookingId: 'b1', type: 'ticket.issued', at: at(cases[7]!) },
     ]);
   });
 

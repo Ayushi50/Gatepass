@@ -3,6 +3,8 @@ import type { EventEnvelope } from './gen/gatepass/events/v1/events_pb';
 
 /** One line of the organizer's live feed (design/organizer.html). */
 export interface ActivityItem {
+  /** The id of the event this line describes; lets a client drop a line it already has. */
+  id: string;
   eventId: string;
   bookingId: string;
   type: string;
@@ -49,7 +51,7 @@ export function describeActivity(env: EventEnvelope): ActivityItem | null {
     text: string,
     failed = false,
   ): ActivityItem | null =>
-    eventId ? { eventId, bookingId, type: env.eventType, text, failed, at } : null;
+    eventId ? { id: env.eventId, eventId, bookingId, type: env.eventType, text, failed, at } : null;
 
   const p = env.payload;
   switch (p.case) {

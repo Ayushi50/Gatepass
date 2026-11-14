@@ -4,6 +4,7 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import {
+  ActivityStreamHub,
   BookingStreamHub,
   DownstreamError,
   GatewayModule,
@@ -13,7 +14,9 @@ import {
   type BookingView,
   type CatalogClient,
   type InventoryClient,
+  type AnalyticsClient,
   type PaymentClient,
+  type TicketClient,
 } from '../src';
 
 const SECRET = 'a-test-secret-that-is-long-enough-123';
@@ -46,6 +49,9 @@ const ev = (id: string, title: string, minPriceMinor: number) => ({
 let app: INestApplication;
 let hub: SeatStreamHub;
 let bookingHub: BookingStreamHub;
+let activityHub: ActivityStreamHub;
+const scans: unknown[] = [];
+let ticketsIssued = false;
 const createCalls: unknown[] = [];
 const payCalls: unknown[] = [];
 
@@ -76,6 +82,7 @@ const bookings: BookingClient = {
   },
   get: async (id) => {
     if (id === 'theirs') return booking({ userId: 'someone-else' });
+    if (id === 'confirmed') return booking({ id: 'confirmed', state: 'CONFIRMED' });
     if (id === 'down') throw new DownstreamError(503, 'unreachable');
     if (id !== 'bk-1') throw new DownstreamError(404, 'not found');
     return booking();
@@ -95,9 +102,86 @@ const payments: PaymentClient = {
   },
 };
 
+/** Reads an SSE response until `needle` appears, then returns everything read so far. */
+async function readSse(res: Response, needle: string): Promise<string> {
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let received = '';
+  const deadline = Date.now() + 5000;
+  while (!received.includes(needle)) {
+    if (Date.now() > deadline) throw new Error(`timeout waiting for ${needle}; got ${received}`);
+    const { value, done } = await reader.read();
+    if (done) break;
+    received += decoder.decode(value);
+  }
+  reader.releaseLock();
+  return received;
+}
+
+const ticketRow = (id: string, status: 'valid' | 'used' = 'valid') => ({
+  id,
+  code: `GP-7QX2-${id}`,
+  bookingId: 'bk-1',
+  eventId: 'neon-nights',
+  eventTitle: 'Neon Nights Live',
+  startsAt: '2026-12-06T14:00:00.000Z',
+  venue: 'Open Air Arena',
+  row: 'C',
+  seat: '6',
+  tier: 'Mid',
+  qrToken: `GP1.${id}.sig`,
+  status,
+});
+const tickets: TicketClient = {
+  list: async (userId) => (userId === 'alice' ? [ticketRow('C6'), ticketRow('C7')] : []),
+  forBooking: async () => ({ issued: ticketsIssued, count: ticketsIssued ? 2 : 0 }),
+  checkIn: async (qrToken, staffId) => {
+    scans.push({ qrToken, staffId });
+    if (qrToken === 'GP1.good.sig')
+      return { httpStatus: 200, body: { status: 'valid', row: 'C', seat: '6', tier: 'Mid' } };
+    if (qrToken === 'GP1.used.sig')
+      return { httpStatus: 409, body: { status: 'used', usedAt: '2026-12-06T13:00:00.000Z' } };
+    if (qrToken === 'GP1.boom.sig') throw new DownstreamError(503, 'unreachable');
+    return { httpStatus: 404, body: { status: 'invalid' } };
+  },
+};
+const feedItem = (id: string, text: string) => ({
+  id,
+  eventId: 'neon-nights',
+  bookingId: 'bk-1',
+  type: 'seats.sold',
+  text,
+  failed: false,
+  at: '2026-12-06T10:00:00.000Z',
+});
+const analytics: AnalyticsClient = {
+  summary: async (eventId, organizerId) => {
+    if (eventId === 'unknown') throw new DownstreamError(404, 'event unknown not found');
+    if (organizerId !== 'org-1') throw new DownstreamError(403, 'not your event');
+    return {
+      eventId,
+      title: 'Neon Nights Live',
+      startsAt: '2026-12-06T14:00:00.000Z',
+      sold: 842,
+      total: 1200,
+      held: 36,
+      left: 322,
+      tiers: [{ name: 'Front', sold: 288, total: 300 }],
+    };
+  },
+  activity: async (eventId, organizerId) => {
+    if (organizerId !== 'org-1') throw new DownstreamError(403, 'not your event');
+    return [
+      feedItem('e2', 'Row B · seats 8, 9'),
+      feedItem('e1', 'Row D · seat 2 returned to sale'),
+    ];
+  },
+};
+
 beforeAll(async () => {
   hub = new SeatStreamHub();
   bookingHub = new BookingStreamHub();
+  activityHub = new ActivityStreamHub();
   const mod = await Test.createTestingModule({
     imports: [
       GatewayModule.forRoot({
@@ -105,8 +189,11 @@ beforeAll(async () => {
         inventory,
         bookings,
         payments,
+        tickets,
+        analytics,
         hub,
         bookingHub,
+        activityHub,
         jwtSecret: SECRET,
         heartbeatMs: 60_000,
       }),
@@ -344,6 +431,214 @@ describe('SSE /api/bookings/:id/stream', () => {
     while (bookingHub.observers > 0 && Date.now() < deadline)
       await new Promise((r) => setTimeout(r, 20));
     expect(bookingHub.observers).toBe(0); // closing the page releases the subscription
+  });
+});
+
+describe('GET /api/tickets', () => {
+  it("needs a token and shows only the signed-in attendee's tickets with their QR tokens", async () => {
+    await request(app.getHttpServer()).get('/api/tickets').expect(401);
+    await request(app.getHttpServer())
+      .get('/api/tickets')
+      .set('Authorization', token('door-staff'))
+      .expect(403);
+    const mine = await request(app.getHttpServer())
+      .get('/api/tickets')
+      .set('Authorization', token('attendee', 'alice'))
+      .expect(200);
+    expect(mine.body).toHaveLength(2);
+    expect(mine.body[0]).toMatchObject({
+      code: 'GP-7QX2-C6',
+      eventTitle: 'Neon Nights Live',
+      row: 'C',
+      seat: '6',
+      tier: 'Mid',
+      status: 'valid',
+      qrToken: 'GP1.C6.sig',
+    });
+    const none = await request(app.getHttpServer())
+      .get('/api/tickets')
+      .set('Authorization', token('attendee', 'bob'))
+      .expect(200);
+    expect(none.body).toEqual([]);
+  });
+});
+
+describe('POST /api/checkin', () => {
+  const scan = (qrToken: unknown, auth = token('door-staff', 'staff-7')) =>
+    request(app.getHttpServer()).post('/api/checkin').set('Authorization', auth).send({ qrToken });
+
+  it('is for door staff only', async () => {
+    await request(app.getHttpServer())
+      .post('/api/checkin')
+      .send({ qrToken: 'GP1.good.sig' })
+      .expect(401);
+    await scan('GP1.good.sig', token('attendee')).expect(403);
+    await scan('GP1.good.sig', token('organizer')).expect(403);
+  });
+
+  it('answers 200 valid, 409 used, 404 invalid with the bodies the scanner shows', async () => {
+    const ok = await scan('GP1.good.sig').expect(200);
+    expect(ok.body).toEqual({ status: 'valid', row: 'C', seat: '6', tier: 'Mid' });
+    const used = await scan('GP1.used.sig').expect(409);
+    expect(used.body).toEqual({ status: 'used', usedAt: '2026-12-06T13:00:00.000Z' });
+    const bad = await scan('GP1.forged.sig').expect(404);
+    expect(bad.body).toEqual({ status: 'invalid' });
+  });
+
+  it('records WHICH staff member scanned, taken from the token', async () => {
+    await scan('GP1.good.sig').expect(200);
+    expect(scans.at(-1)).toEqual({ qrToken: 'GP1.good.sig', staffId: 'staff-7' });
+  });
+
+  it('rejects a missing, non-string or oversized token, and reports an outage as 503', async () => {
+    await scan(undefined).expect(400);
+    await scan(12345).expect(400);
+    await scan('x'.repeat(3000)).expect(400);
+    await scan('GP1.boom.sig').expect(503);
+  });
+});
+
+describe('organizer dashboard', () => {
+  const org = (sub = 'org-1') => token('organizer', sub);
+
+  it('GET summary: organizer only, scoped to the token, maps 403 and 404', async () => {
+    await request(app.getHttpServer()).get('/api/organizer/events/neon-nights/summary').expect(401);
+    await request(app.getHttpServer())
+      .get('/api/organizer/events/neon-nights/summary')
+      .set('Authorization', token('attendee'))
+      .expect(403);
+    const ok = await request(app.getHttpServer())
+      .get('/api/organizer/events/neon-nights/summary')
+      .set('Authorization', org())
+      .expect(200);
+    expect(ok.body).toMatchObject({
+      sold: 842,
+      total: 1200,
+      held: 36,
+      left: 322,
+      tiers: [{ name: 'Front', sold: 288, total: 300 }],
+    });
+    await request(app.getHttpServer())
+      .get('/api/organizer/events/neon-nights/summary')
+      .set('Authorization', org('org-2'))
+      .expect(403);
+    await request(app.getHttpServer())
+      .get('/api/organizer/events/unknown/summary')
+      .set('Authorization', org())
+      .expect(404);
+  });
+
+  it('SSE activity: refuses other organizers without leaking a subscription', async () => {
+    const port = (app.getHttpServer().address() as AddressInfo).port;
+    const get = (auth?: string) =>
+      fetch(`http://127.0.0.1:${port}/api/organizer/events/neon-nights/activity`, {
+        headers: { accept: 'text/event-stream', ...(auth ? { authorization: auth } : {}) },
+      });
+    for (const [auth, status] of [
+      [undefined, 401],
+      [token('attendee'), 403],
+      [org('org-2'), 403],
+    ] as const) {
+      const res = await get(auth);
+      expect(res.status).toBe(status);
+      await res.body?.cancel();
+    }
+    expect(activityHub.observers).toBe(0);
+  });
+
+  it('SSE activity: snapshot of the recent feed first, then live lines for this show only', async () => {
+    const port = (app.getHttpServer().address() as AddressInfo).port;
+    const controller = new AbortController();
+    const res = await fetch(`http://127.0.0.1:${port}/api/organizer/events/neon-nights/activity`, {
+      signal: controller.signal,
+      headers: { accept: 'text/event-stream', authorization: org() },
+    });
+    expect(res.status).toBe(200);
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let received = '';
+    const readUntil = async (needle: string) => {
+      const deadline = Date.now() + 5000;
+      while (!received.includes(needle)) {
+        if (Date.now() > deadline)
+          throw new Error(`timeout waiting for ${needle}; got ${received}`);
+        const { value } = await reader.read();
+        received += decoder.decode(value);
+      }
+    };
+
+    await readUntil('"kind":"snapshot"');
+    expect(received).toContain('Row B · seats 8, 9');
+    expect(received).toContain('"id":"e2"');
+
+    activityHub.publish({ ...feedItem('x1', 'other show line'), eventId: 'other-show' });
+    activityHub.publish({
+      ...feedItem('e3', 'Payment failed · declined'),
+      type: 'payment.failed',
+      failed: true,
+    });
+    await readUntil('"id":"e3"');
+    expect(received).toContain('"kind":"event"');
+    expect(received).toContain('"failed":true');
+    expect(received).not.toContain('other show line');
+
+    controller.abort();
+    const deadline = Date.now() + 3000;
+    while (activityHub.observers > 0 && Date.now() < deadline)
+      await new Promise((r) => setTimeout(r, 20));
+    expect(activityHub.observers).toBe(0);
+  });
+});
+
+describe('booking stream: the third light', () => {
+  const open = async (id: string) => {
+    const port = (app.getHttpServer().address() as AddressInfo).port;
+    const controller = new AbortController();
+    const res = await fetch(`http://127.0.0.1:${port}/api/bookings/${id}/stream`, {
+      signal: controller.signal,
+      headers: { accept: 'text/event-stream', authorization: token('attendee', 'alice') },
+    });
+    return { res, controller };
+  };
+
+  it('a confirmed booking whose tickets exist reloads with the light on; without tickets it is off', async () => {
+    for (const [id, issued, expected] of [
+      ['confirmed', true, true],
+      ['confirmed', false, false],
+      ['bk-1', true, false], // only a confirmed booking can have tickets
+    ] as const) {
+      ticketsIssued = issued;
+      const { res, controller } = await open(id);
+      try {
+        expect(await readSse(res, '"ticketsIssued"')).toContain(`"ticketsIssued":${expected}`);
+      } finally {
+        controller.abort();
+      }
+    }
+  });
+
+  it('ticket.issued arrives live as a step', async () => {
+    const { res, controller } = await open('bk-1');
+    try {
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let received = '';
+      while (!received.includes('"kind":"snapshot"'))
+        received += decoder.decode((await reader.read()).value);
+      bookingHub.publish({
+        bookingId: 'bk-1',
+        type: 'ticket.issued',
+        at: '2026-12-06T10:03:00.000Z',
+      });
+      const deadline = Date.now() + 5000;
+      while (!received.includes('"type":"ticket.issued"')) {
+        if (Date.now() > deadline) throw new Error(`timeout; got ${received}`);
+        received += decoder.decode((await reader.read()).value);
+      }
+      expect(received).toContain('"kind":"event","type":"ticket.issued"');
+    } finally {
+      controller.abort();
+    }
   });
 });
 

@@ -1,7 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { Subject, filter, type Observable } from 'rxjs';
 import { v4 as uuidv4 } from 'uuid';
-import type { EventEnvelope } from '@gatepass/events';
+import {
+  EVENT_TYPES,
+  describeActivity,
+  type ActivityItem,
+  type EventEnvelope,
+} from '@gatepass/events';
 import { KafkaEventConsumer, type DeadLetterPublisher } from '@gatepass/messaging';
 import type { Kafka } from 'kafkajs';
 
@@ -80,7 +85,8 @@ export interface BookingUpdate {
     | 'payment.succeeded'
     | 'payment.failed'
     | 'booking.confirmed'
-    | 'booking.cancelled';
+    | 'booking.cancelled'
+    | 'ticket.issued';
   reason?: string;
   at: string; // ISO, server time of the event
 }
@@ -93,6 +99,7 @@ export const BOOKING_TOPICS = [
   'payment.failed',
   'booking.confirmed',
   'booking.cancelled',
+  'ticket.issued',
 ];
 
 /** Pure mapping from a broker event to a booking status update; null if it is not one. */
@@ -119,6 +126,8 @@ export function toBookingUpdate(env: EventEnvelope): BookingUpdate | null {
         reason: p.value.reason,
         at,
       };
+    case 'ticketIssued':
+      return { bookingId: p.value.bookingId, type: 'ticket.issued', at };
     default:
       return null;
   }
@@ -142,6 +151,24 @@ export class BookingStreamHub {
   }
 }
 
+/** In-process fan-out of an organizer's live feed (design/organizer.html "Live activity"). */
+@Injectable()
+export class ActivityStreamHub {
+  private readonly items = new Subject<ActivityItem>();
+
+  publish(item: ActivityItem): void {
+    this.items.next(item);
+  }
+
+  stream(eventId: string): Observable<ActivityItem> {
+    return this.items.pipe(filter((i) => i.eventId === eventId));
+  }
+
+  get observers(): number {
+    return this.items.observers.length;
+  }
+}
+
 /**
  * The Kafka -> SSE bridge. ONE consumer feeds both hubs. Every gateway instance uses its own
  * consumer group, so every instance sees every event and can serve its own browsers. Only new
@@ -152,17 +179,20 @@ export function startStreamBridge(
   dlq: DeadLetterPublisher,
   seats: SeatStreamHub,
   bookings: BookingStreamHub,
+  activity: ActivityStreamHub,
 ): KafkaEventConsumer {
   const consumer = new KafkaEventConsumer({
     kafka,
     groupId: `gateway-streams-${uuidv4()}`,
-    topics: [...new Set([...SEAT_TOPICS, ...BOOKING_TOPICS])],
+    topics: [...new Set([...SEAT_TOPICS, ...BOOKING_TOPICS, ...EVENT_TYPES])],
     fromBeginning: false,
     dlq,
     handle: async (env) => {
       for (const u of toSeatUpdates(env)) seats.publish(u);
       const b = toBookingUpdate(env);
       if (b) bookings.publish(b);
+      const a = describeActivity(env);
+      if (a) activity.publish(a);
     },
   });
   void consumer.start();
