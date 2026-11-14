@@ -8,6 +8,7 @@ import {
 } from '@gatepass/booking';
 import { buildSeatMap, createEvent } from '@gatepass/catalog';
 import { migrate } from '@gatepass/db';
+import type { EventEnvelope } from '@gatepass/events';
 import { CONSUMED_TOPICS as ANALYTICS_TOPICS, analyticsHandler } from '@gatepass/analytics';
 import {
   createMessageHandler,
@@ -161,20 +162,12 @@ async function runOnce(seed: number): Promise<{
     (s) => new OutboxRelay({ pool: pool(s), publisher: flakyPublisher, lockName: s }),
   );
 
-  const chaotic =
-    (h: (e: import('@gatepass/events').EventEnvelope) => Promise<void>) =>
-    async (e: import('@gatepass/events').EventEnvelope) => {
-      if (faults.on && chance(rand, faults.handlerBefore))
-        throw new Error('crashed before handling');
-      await h(e);
-      if (faults.on && chance(rand, faults.handlerAfter))
-        throw new Error('crashed after committing');
-    };
-  const subscribe = (
-    group: string,
-    topics: string[],
-    h: (e: import('@gatepass/events').EventEnvelope) => Promise<void>,
-  ) =>
+  const chaotic = (h: (e: EventEnvelope) => Promise<void>) => async (e: EventEnvelope) => {
+    if (faults.on && chance(rand, faults.handlerBefore)) throw new Error('crashed before handling');
+    await h(e);
+    if (faults.on && chance(rand, faults.handlerAfter)) throw new Error('crashed after committing');
+  };
+  const subscribe = (group: string, topics: string[], h: (e: EventEnvelope) => Promise<void>) =>
     broker.subscribe(
       topics,
       createMessageHandler({ groupId: group, handle: chaotic(h), dlq, retry: FAST }),

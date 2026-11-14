@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 // Replays a consumer's dead letters. Usage:
 //   pnpm replay --dlq booking.dlq [--brokers localhost:9092] [--limit 10] [--event-id ID] [--dry-run]
 //
