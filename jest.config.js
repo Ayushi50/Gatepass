@@ -3,7 +3,10 @@ const base = {
   preset: 'ts-jest',
   testEnvironment: 'node',
   transform: {
-    '^.+\\.ts$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.json', diagnostics: true }],
+    '^.+\\.ts$': [
+      'ts-jest',
+      { tsconfig: '<rootDir>/tsconfig.json', diagnostics: { ignoreCodes: [151002] } },
+    ],
   },
 };
 
