@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gatepass: checkout</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,500;1,6..96,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/gatepass.css">
+<style>
+.layout{display:flex;flex-wrap:wrap;align-items:flex-start;gap:48px;padding:32px 48px 72px}
+.pay{flex:999 1 560px;min-width:0;max-width:700px}
+.pay h1{margin:16px 0 28px;font-size:clamp(48px,5.9vw,76px);line-height:.95;letter-spacing:-.035em}
+.clock{padding:24px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.clock .top{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 20px}
+.clock .time{font-family:var(--font-display);font-size:88px;line-height:1;letter-spacing:-.03em;color:var(--amber)}
+.track{margin-top:18px;height:3px;background:var(--line-soft);border-radius:2px}
+.track > div{height:3px;background:var(--amber);border-radius:2px;box-shadow:0 0 10px rgba(255,179,71,.7);transition:width 1s linear}
+.expired{margin-top:22px;padding:18px 20px;border:1px dashed var(--amber);border-radius:16px;font-size:15px;line-height:1.5}
+.pay h2.sub{margin:40px 0 16px;font-size:30px;letter-spacing:-.02em}
+.methods{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr));gap:12px}
+.pay-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 20px;margin-top:20px}
+.test-tag{font-size:12px;font-weight:600;letter-spacing:.12em;border:1px solid var(--outline);padding:6px 14px;border-radius:999px;color:var(--muted);text-transform:uppercase}
+aside{flex:1 1 340px;max-width:400px;min-width:0}
+.stub h2{margin:10px 0 4px;font-size:36px;line-height:1;letter-spacing:-.03em}
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <a class="logo" href="index.html"><span>gatepass</span><i aria-hidden="true"></i></a>
+  <ol class="steps" aria-label="Booking steps">
+    <li>Seats</li><li class="bar" aria-hidden="true"></li><li aria-current="step">Pay</li><li class="bar" aria-hidden="true"></li><li style="color:var(--quiet)">Tickets</li>
+  </ol>
+</header>
+
+<main class="layout">
+  <section class="pay">
+    <p class="kicker">Your seats are held</p>
+    <h1>Almost <span class="italic accent">yours.</span></h1>
+
+    <div class="clock">
+      <div class="top">
+        <span class="muted" style="font-size:14px">Time left to pay</span>
+        <span class="time" id="time" role="timer" aria-live="off">08:41</span>
+      </div>
+      <div class="track" aria-hidden="true"><div id="progress" style="width:87%"></div></div>
+    </div>
+
+    <div class="expired" id="expired" hidden>
+      <strong style="font-weight:600">The lights are back up.</strong> Your seats were released so others can book them. <a href="seats.html" style="font-weight:600">Pick new seats</a>
+    </div>
+
+    <h2 class="sub">How would you like to pay?</h2>
+    <div class="methods" role="radiogroup" aria-label="Payment method" id="methods"></div>
+
+    <div id="panel-upi" class="field">
+      <label for="upi-id">UPI ID</label>
+      <input id="upi-id" type="text" placeholder="name@bank" autocomplete="off">
+      <p class="hint">You will get a request in your UPI app to approve.</p>
+    </div>
+    <div id="panel-card" class="field" hidden>
+      <label for="card-no">Card number</label>
+      <input id="card-no" type="text" inputmode="numeric" placeholder="0000 0000 0000 0000" autocomplete="off">
+      <div class="field-row" style="margin-top:14px">
+        <div><label for="card-exp" style="display:block;margin-bottom:8px;font-size:14px;font-weight:600">Expiry</label><input id="card-exp" type="text" placeholder="MM / YY" style="width:100%;height:54px;padding:0 18px;background:var(--panel);border:1px solid var(--outline);border-radius:14px;color:var(--text);font:16px var(--font-ui)"></div>
+        <div><label for="card-cvc" style="display:block;margin-bottom:8px;font-size:14px;font-weight:600">CVC</label><input id="card-cvc" type="text" placeholder="123" style="width:100%;height:54px;padding:0 18px;background:var(--panel);border:1px solid var(--outline);border-radius:14px;color:var(--text);font:16px var(--font-ui)"></div>
+      </div>
+    </div>
+    <p id="panel-net" class="muted" hidden style="margin:22px 0 0;padding:16px 18px;border:1px dashed var(--outline);border-radius:14px;font-size:15px;line-height:1.5">You will be sent to your bank to finish paying, then brought straight back here.</p>
+
+    <!-- BACKEND: POST /api/bookings/:id/pay with an Idempotency-Key header; then go to status.html?booking=:id -->
+    <a class="btn btn-amber btn-block" id="pay-btn" href="status.html" style="margin-top:30px;min-height:60px;font-size:17px">Pay ₹3,600</a>
+    <button class="btn btn-block" id="pay-off" type="button" disabled hidden style="margin-top:30px;min-height:60px;font-size:17px">Pay ₹3,600</button>
+
+    <div class="pay-actions">
+      <span class="test-tag">Test mode · no real money moves</span>
+      <a href="seats.html" style="font-size:14px;font-weight:600">Back to seats</a>
+    </div>
+  </section>
+
+  <aside>
+    <div class="stub">
+      <div class="stub-body" style="padding-bottom:22px">
+        <p class="kicker">Sat 6 Dec · 7:30 PM</p>
+        <h2>Neon Nights <span class="italic">Live</span></h2>
+        <p class="muted" style="margin:0 0 18px;font-size:14px">Open Air Arena</p>
+        <ul style="list-style:none;margin:0;padding:0">
+          <li class="line-item"><div><div class="t">Row C, seat 6</div><div class="s">Mid tier</div></div><span class="t">₹1,800</span></li>
+          <li class="line-item"><div><div class="t">Row C, seat 7</div><div class="s">Mid tier</div></div><span class="t">₹1,800</span></li>
+        </ul>
+      </div>
+      <div class="perf" aria-hidden="true"><span></span></div>
+      <div class="stub-body" style="padding-top:12px"><div class="total"><span class="label">Total</span><b>₹3,600</b></div></div>
+    </div>
+  </aside>
+</main>
+
+<script>
+  // BACKEND: read holdExpiresAt from GET /api/bookings/:id and count down to it (do not trust the browser clock alone).
+  var HOLD_SECONDS = 600;
+  var sec = 521;
+  var method = 'upi';
+  var METHODS = [
+    { id: 'upi', name: 'UPI', hint: 'Any UPI app' },
+    { id: 'card', name: 'Card', hint: 'Credit or debit' },
+    { id: 'net', name: 'Netbanking', hint: 'Pay through your bank' }
+  ];
+
+  function pad(n) { return n < 10 ? '0' + n : '' + n; }
+
+  function renderClock() {
+    var t = document.getElementById('time');
+    t.textContent = pad(Math.floor(sec / 60)) + ':' + pad(sec % 60);
+    document.getElementById('progress').style.width = Math.round((sec / HOLD_SECONDS) * 100) + '%';
+    var gone = sec === 0;
+    document.getElementById('expired').hidden = !gone;
+    document.getElementById('pay-btn').hidden = gone;
+    document.getElementById('pay-off').hidden = !gone;
+  }
+
+  function renderMethods() {
+    var el = document.getElementById('methods');
+    el.innerHTML = METHODS.map(function (m) {
+      return '<button type="button" class="radio-card" role="radio" data-id="' + m.id + '" aria-checked="' + (m.id === method) + '">' +
+        '<span class="ring" aria-hidden="true"></span><span><span class="name">' + m.name + '</span><span class="hint">' + m.hint + '</span></span></button>';
+    }).join('');
+    el.querySelectorAll('button').forEach(function (b) {
+      b.addEventListener('click', function () { method = b.dataset.id; renderMethods(); });
+    });
+    document.getElementById('panel-upi').hidden = method !== 'upi';
+    document.getElementById('panel-card').hidden = method !== 'card';
+    document.getElementById('panel-net').hidden = method !== 'net';
+  }
+
+  setInterval(function () { if (sec > 0) { sec -= 1; renderClock(); } }, 1000);
+  renderClock();
+  renderMethods();
+</script>
+</body>
+</html>

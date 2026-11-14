@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gatepass: organizer dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,500;1,6..96,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/gatepass.css">
+<style>
+.head{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px 40px;padding:32px 48px 0}
+.head h1{margin:14px 0 6px;font-size:clamp(44px,5.6vw,72px);line-height:.95;letter-spacing:-.035em}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;padding:32px 48px 0}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:22px 24px}
+.tile .n{margin-top:8px;font-family:var(--font-display);font-size:56px;line-height:1;letter-spacing:-.03em}
+.tile .n small{font-family:var(--font-ui);font-size:14px;color:var(--muted);letter-spacing:0}
+.grid{display:flex;flex-wrap:wrap;gap:24px;padding:24px 48px 72px}
+.card{flex:1 1 420px;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:28px}
+.card h2{margin:8px 0 20px;font-size:32px;line-height:1.05;letter-spacing:-.02em}
+.bar-row{margin-bottom:20px}
+.bar-row .top{display:flex;justify-content:space-between;font-size:14px;margin-bottom:8px}
+.bar-row .top b{font-weight:600}
+.bar{height:10px;background:var(--line-soft);border-radius:999px;overflow:hidden}
+.bar > div{height:100%;background:var(--amber);border-radius:999px}
+.refund{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:14px 0;border-top:1px solid var(--line-soft)}
+.refund .who{flex:1 1 180px;min-width:0}
+.refund .who b{display:block;font-size:15px;font-weight:600}
+.refund .who span{font-size:13px;color:var(--muted)}
+.refund .done{font-size:13px;font-weight:600;color:var(--amber)}
+.feed{list-style:none;margin:0;padding:0}
+.feed li{display:flex;gap:14px;align-items:baseline;padding:12px 0;border-top:1px solid var(--line-soft);font-size:14px}
+.feed li:first-child{border-top:0}
+.feed code{font:600 12px ui-monospace,Menlo,monospace;color:var(--amber);min-width:130px}
+.feed code.bad{color:var(--danger)}
+.feed time{margin-left:auto;font-size:12px;color:var(--quiet);white-space:nowrap}
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <a class="logo" href="index.html"><span>gatepass</span><i aria-hidden="true"></i></a>
+  <nav class="nav" aria-label="Main">
+    <a href="events.html">Shows</a>
+    <a href="organizer.html" aria-current="page">Host a show</a>
+    <a class="outline" href="tickets.html">My tickets</a>
+  </nav>
+</header>
+
+<main>
+  <section class="head">
+    <div>
+      <p class="kicker">Organizer · Sat 6 Dec</p>
+      <h1>Neon Nights <span class="italic">Live</span></h1>
+      <p class="muted" style="margin:0;font-size:17px">Open Air Arena · 1,200 seats</p>
+    </div>
+    <div class="chip"><span class="dot-live" aria-hidden="true"></span><span>Live</span></div>
+  </section>
+
+  <section class="tiles" aria-label="Summary">
+    <div class="tile"><div class="label">Sold</div><div class="n">842 <small>of 1,200</small></div></div>
+    <div class="tile"><div class="label">Held right now</div><div class="n">36</div></div>
+    <div class="tile"><div class="label">Seats left</div><div class="n">322</div></div>
+    <div class="tile"><div class="label">Refund requests</div><div class="n" id="refund-count">5</div></div>
+  </section>
+
+  <div class="grid">
+    <section class="card">
+      <p class="kicker">By tier</p>
+      <h2>Where the seats went</h2>
+      <div id="tiers"></div>
+    </section>
+
+    <section class="card">
+      <p class="kicker">Needs you</p>
+      <h2>Refund requests</h2>
+      <div id="refunds"></div>
+    </section>
+
+    <section class="card" style="flex-basis:100%">
+      <p class="kicker">Live activity</p>
+      <h2>What is happening now</h2>
+      <ul class="feed" id="feed" aria-live="polite"></ul>
+    </section>
+  </div>
+</main>
+
+<script>
+  // BACKEND:
+  //  tiles + tiers:  GET /api/organizer/events/:id/summary
+  //  refunds list:   GET /api/organizer/events/:id/refunds ; approve -> POST /api/refunds/:id/approve
+  //  activity feed:  EventSource('/api/organizer/events/:id/activity') (bridged from Kafka topics)
+  var TIERS = [
+    { name: 'Front', sold: 288, total: 300 },
+    { name: 'Mid', sold: 372, total: 500 },
+    { name: 'Back', sold: 182, total: 400 }
+  ];
+  var REFUNDS = [
+    { id: 1, who: 'Aarav M.', what: 'Row C · seat 6 · ₹1,800', done: false },
+    { id: 2, who: 'Isha K.', what: 'Row A · seat 9 · ₹2,400', done: false },
+    { id: 3, who: 'Rohan P.', what: 'Row E · seat 4 · ₹1,200', done: false },
+    { id: 4, who: 'Meera S.', what: 'Row D · seat 10 · ₹1,800', done: false },
+    { id: 5, who: 'Kabir T.', what: 'Row F · seat 7 · ₹1,200', done: false }
+  ];
+  var FEED = [
+    ['seats.sold', 'Row B · seats 8, 9', '2s ago', false],
+    ['payment.failed', 'Card declined · seats released', '14s ago', true],
+    ['ticket.issued', 'Booking GP-7QX2 · 2 tickets', '31s ago', false],
+    ['hold.expired', 'Row D · seat 2 returned to sale', '48s ago', false],
+    ['refund.completed', 'Booking GP-4LM8 · ₹2,400', '1m ago', false]
+  ];
+
+  function renderTiers() {
+    document.getElementById('tiers').innerHTML = TIERS.map(function (t) {
+      var pct = Math.round(t.sold / t.total * 100);
+      return '<div class="bar-row"><div class="top"><b>' + t.name + '</b><span class="muted">' + t.sold + ' of ' + t.total + ' · ' + pct + '%</span></div>' +
+        '<div class="bar" role="img" aria-label="' + t.name + ' tier ' + pct + ' percent sold"><div style="width:' + pct + '%"></div></div></div>';
+    }).join('');
+  }
+
+  function renderRefunds() {
+    var open = REFUNDS.filter(function (r) { return !r.done; }).length;
+    document.getElementById('refund-count').textContent = open;
+    document.getElementById('refunds').innerHTML = REFUNDS.map(function (r) {
+      var act = r.done ? '<span class="done">Approved ✓</span>' : '<button type="button" class="btn btn-ghost" data-id="' + r.id + '">Approve</button>';
+      return '<div class="refund"><div class="who"><b>' + r.who + '</b><span>' + r.what + '</span></div>' + act + '</div>';
+    }).join('');
+    document.querySelectorAll('#refunds [data-id]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        REFUNDS.filter(function (r) { return r.id === +b.dataset.id; })[0].done = true;
+        renderRefunds();
+      });
+    });
+  }
+
+  function renderFeed() {
+    document.getElementById('feed').innerHTML = FEED.map(function (f) {
+      return '<li><code class="' + (f[3] ? 'bad' : '') + '">' + f[0] + '</code><span>' + f[1] + '</span><time>' + f[2] + '</time></li>';
+    }).join('');
+  }
+
+  renderTiers(); renderRefunds(); renderFeed();
+</script>
+</body>
+</html>

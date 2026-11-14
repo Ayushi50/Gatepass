@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gatepass: booking status</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,500;1,6..96,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/gatepass.css">
+<style>
+.wrap{max-width:720px;margin:0 auto;padding:40px 48px 80px}
+.preview{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:40px}
+h1{margin:16px 0 14px;font-size:clamp(44px,6vw,76px);line-height:.95;letter-spacing:-.035em}
+.lede{margin:0 0 36px;font-size:18px;line-height:1.6;color:var(--muted)}
+.lights{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.light{display:flex;align-items:center;gap:20px;min-height:88px;border-bottom:1px solid var(--line)}
+.bulb{flex:none;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:1.5px solid var(--outline)}
+.light[data-s="done"] .bulb{background:var(--amber);border-color:var(--amber);box-shadow:0 0 16px var(--amber-glow)}
+.light[data-s="active"] .bulb{border:1.5px dashed var(--amber);animation:livepulse 1.6s ease-in-out infinite}
+.light[data-s="failed"] .bulb{border-color:var(--danger);color:var(--danger)}
+.light .name{font-family:var(--font-display);font-size:30px;line-height:1.1}
+.light[data-s="wait"] .name{color:var(--quiet)}
+.light .state{margin-left:auto;font-size:13px;font-weight:600;color:var(--muted)}
+.actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:36px}
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <a class="logo" href="index.html"><span>gatepass</span><i aria-hidden="true"></i></a>
+  <ol class="steps" aria-label="Booking steps">
+    <li>Seats</li><li class="bar" aria-hidden="true"></li><li>Pay</li><li class="bar" aria-hidden="true"></li><li aria-current="step">Tickets</li>
+  </ol>
+</header>
+
+<main class="wrap">
+  <!-- Preview switcher is for design review only. In the real app the mode comes from the booking's status. -->
+  <div class="preview" role="group" aria-label="Preview state" id="preview"></div>
+
+  <p class="kicker" id="kicker"></p>
+  <h1 id="title"></h1>
+  <p class="lede" id="lede" aria-live="polite"></p>
+
+  <ul class="lights" id="lights"></ul>
+  <div class="actions" id="actions"></div>
+</main>
+
+<script>
+  // BACKEND: replace MODE with the booking status. Open EventSource('/api/bookings/:id/stream')
+  // and map events: seats.held -> light 1, payment.succeeded -> light 2, ticket.issued -> light 3,
+  // payment.failed / seats.released -> failed.
+  var MODES = [
+    { id: 'progress', label: 'In progress' },
+    { id: 'confirmed', label: 'Confirmed' },
+    { id: 'failed', label: 'Payment failed' }
+  ];
+  var mode = 'progress';
+
+  var COPY = {
+    progress: { kicker: 'Hang tight', title: 'The lights are <span class="italic accent">coming up.</span>', lede: 'We are confirming your payment and issuing your tickets. This usually takes a few seconds.' },
+    confirmed: { kicker: 'You are in', title: 'See you <span class="italic accent">inside.</span>', lede: 'Your payment went through and your tickets are ready.' },
+    failed: { kicker: 'Something went wrong', title: 'The lights went <span class="italic accent">back down.</span>', lede: 'Your payment did not go through, and nothing was charged. Your seats were released so others can book them.' }
+  };
+
+  var LIGHTS = {
+    progress: [['Seats held', 'done', 'Done'], ['Payment received', 'active', 'Working'], ['Ticket issued', 'wait', 'Waiting']],
+    confirmed: [['Seats held', 'done', 'Done'], ['Payment received', 'done', 'Done'], ['Ticket issued', 'done', 'Done']],
+    failed: [['Seats held', 'done', 'Done'], ['Payment received', 'failed', 'Failed'], ['Ticket issued', 'wait', 'Not issued']]
+  };
+
+  function render() {
+    var c = COPY[mode];
+    document.getElementById('kicker').textContent = c.kicker;
+    document.getElementById('title').innerHTML = c.title;
+    document.getElementById('lede').textContent = c.lede;
+
+    document.getElementById('preview').innerHTML = MODES.map(function (m) {
+      return '<button type="button" class="pill" data-m="' + m.id + '" aria-pressed="' + (m.id === mode) + '">' + m.label + '</button>';
+    }).join('');
+    document.querySelectorAll('#preview button').forEach(function (b) {
+      b.addEventListener('click', function () { mode = b.dataset.m; render(); });
+    });
+
+    document.getElementById('lights').innerHTML = LIGHTS[mode].map(function (l) {
+      var icon = '';
+      if (l[1] === 'done') icon = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M2.5 7.5l3 3 6-7" stroke="#0D0A10" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      if (l[1] === 'failed') icon = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" stroke="#FF8A97" stroke-width="2" stroke-linecap="round"/></svg>';
+      return '<li class="light" data-s="' + l[1] + '"><span class="bulb">' + icon + '</span><span class="name">' + l[0] + '</span><span class="state">' + l[2] + '</span></li>';
+    }).join('');
+
+    var a = '';
+    if (mode === 'confirmed') a = '<a class="btn btn-amber" href="tickets.html">View my tickets</a><a class="btn btn-ghost" href="events.html">Browse more shows</a>';
+    if (mode === 'failed') a = '<a class="btn btn-amber" href="checkout.html">Try paying again</a><a class="btn btn-ghost" href="seats.html">Pick new seats</a>';
+    if (mode === 'progress') a = '<span class="muted" style="font-size:14px">You can leave this page. We will email you when your tickets are ready.</span>';
+    document.getElementById('actions').innerHTML = a;
+  }
+  render();
+</script>
+</body>
+</html>

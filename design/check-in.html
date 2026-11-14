@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gatepass: door scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,500;1,6..96,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/gatepass.css">
+<style>
+body{display:flex;justify-content:center}
+.phone{width:100%;max-width:430px;min-height:100vh;display:flex;flex-direction:column;padding:20px 20px 28px}
+.top{display:flex;align-items:center;justify-content:space-between;padding:6px 0 18px}
+.top .logo{font-size:24px}
+.top .where{font-size:12px;font-weight:600;letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+.viewfinder{position:relative;flex:none;aspect-ratio:1/1;width:100%;background:#120D16;border:1px solid var(--line);border-radius:24px;overflow:hidden}
+.corner{position:absolute;width:44px;height:44px;border:3px solid var(--amber)}
+.c1{top:22px;left:22px;border-right:0;border-bottom:0;border-top-left-radius:14px}
+.c2{top:22px;right:22px;border-left:0;border-bottom:0;border-top-right-radius:14px}
+.c3{bottom:22px;left:22px;border-right:0;border-top:0;border-bottom-left-radius:14px}
+.c4{bottom:22px;right:22px;border-left:0;border-top:0;border-bottom-right-radius:14px}
+.scan{position:absolute;left:34px;right:34px;height:2px;background:var(--amber);box-shadow:0 0 14px var(--amber-glow);animation:sweep 2.6s ease-in-out infinite}
+@keyframes sweep{0%,100%{top:18%}50%{top:82%}}
+.hint{position:absolute;bottom:18px;left:0;right:0;text-align:center;font-size:13px;color:var(--muted)}
+.preview{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0}
+.preview .pill{min-height:40px;padding:0 16px;font-size:13px}
+.result{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:24px;display:flex;flex-direction:column;justify-content:center}
+.result h1{margin:10px 0 8px;font-size:44px;line-height:1;letter-spacing:-.03em}
+.result p{margin:0;font-size:15px;color:var(--muted);line-height:1.5}
+.result[data-m="valid"]{border-color:var(--amber)}
+.result[data-m="used"]{border-color:var(--danger)}
+.result[data-m="used"] .kicker{color:var(--danger)}
+.badge{width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:1.5px solid var(--outline)}
+.result[data-m="valid"] .badge{background:var(--amber);border-color:var(--amber);box-shadow:0 0 20px var(--amber-glow)}
+.result[data-m="used"] .badge{border-color:var(--danger)}
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="top">
+    <a class="logo" href="index.html"><span>gatepass</span><i aria-hidden="true"></i></a>
+    <span class="where">Gate 2 · Neon Nights</span>
+  </div>
+
+  <div class="viewfinder" role="img" aria-label="Camera viewfinder. Point it at a ticket QR code.">
+    <span class="corner c1"></span><span class="corner c2"></span><span class="corner c3"></span><span class="corner c4"></span>
+    <span class="scan"></span>
+    <span class="hint">Point at the ticket QR code</span>
+  </div>
+
+  <!-- Preview switcher is for design review only. In the real app the camera decode result drives the mode. -->
+  <div class="preview" role="group" aria-label="Preview result" id="preview"></div>
+
+  <section class="result" id="result" aria-live="assertive"></section>
+</div>
+
+<script>
+  // BACKEND: on each decoded QR -> POST /api/checkin { qrToken }
+  //   200 { status:'valid', row, seat, tier }       -> mode 'valid'  (mark ticket used, idempotent)
+  //   409 { status:'used', usedAt }                 -> mode 'used'
+  //   404/invalid signature                          -> show an 'invalid' message
+  var MODES = [{ id: 'ready', label: 'Ready' }, { id: 'valid', label: 'Valid' }, { id: 'used', label: 'Used' }];
+  var mode = 'ready';
+
+  var TICK = '<svg width="22" height="22" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M2.5 7.5l3 3 6-7" stroke="#0D0A10" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  var CROSS = '<svg width="20" height="20" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" stroke="#FF8A97" stroke-width="1.8" stroke-linecap="round"/></svg>';
+  var DOT = '<span style="width:10px;height:10px;border-radius:50%;background:var(--amber);display:block;animation:livepulse 2s ease-in-out infinite"></span>';
+
+  var COPY = {
+    ready: { k: 'Ready', t: 'Waiting for a <span class="italic accent">ticket.</span>', p: 'Hold the camera steady over the QR code.', icon: DOT },
+    valid: { k: 'Valid ticket', t: 'Welcome <span class="italic accent">in.</span>', p: 'Row C · Seat 6 · Mid tier. Marked as used.', icon: TICK },
+    used: { k: 'Do not admit', t: 'Already <span class="italic" style="color:var(--danger)">used.</span>', p: 'This ticket was scanned at Gate 1 at 7:12 PM.', icon: CROSS }
+  };
+
+  function render() {
+    document.getElementById('preview').innerHTML = MODES.map(function (m) {
+      return '<button type="button" class="pill" data-m="' + m.id + '" aria-pressed="' + (m.id === mode) + '">' + m.label + '</button>';
+    }).join('');
+    document.querySelectorAll('#preview button').forEach(function (b) {
+      b.addEventListener('click', function () { mode = b.dataset.m; render(); });
+    });
+    var c = COPY[mode], r = document.getElementById('result');
+    r.dataset.m = mode;
+    r.innerHTML = '<span class="badge">' + c.icon + '</span><h1>' + c.t + '</h1><p class="kicker" style="order:-1;margin:14px 0 0">' + c.k + '</p><p>' + c.p + '</p>';
+    r.style.display = 'flex';
+  }
+  render();
+</script>
+</body>
+</html>

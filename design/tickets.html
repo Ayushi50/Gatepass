@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gatepass: my tickets</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,500;1,6..96,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/gatepass.css">
+<style>
+.wrap{max-width:980px;margin:0 auto;padding:32px 48px 80px}
+.wrap h1{margin:16px 0 36px;font-size:clamp(48px,6.6vw,84px);line-height:.95;letter-spacing:-.035em}
+.list{display:flex;flex-direction:column;gap:28px}
+.ticket h2{margin:12px 0 4px;font-size:44px;line-height:1;letter-spacing:-.03em}
+.ticket .meta{margin:0 0 22px;font-size:15px;color:var(--ink-muted)}
+.cols{display:flex;gap:36px;flex-wrap:wrap}
+.cols .k{font-size:11px;font-weight:600;letter-spacing:.18em;color:var(--ink-muted);text-transform:uppercase}
+.cols .v{font-family:var(--font-display);font-size:34px;line-height:1.1}
+.ticket .row-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:26px}
+.ticket .btn-ghost{color:var(--ink);border-color:#B3A89A}
+.ticket .btn-ghost:hover:not(:disabled){background:#EAE2D5}
+.ticket .code{font-size:12px;font-weight:600;letter-spacing:.12em;color:var(--ink-muted)}
+.refunded{opacity:.6}
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <a class="logo" href="index.html"><span>gatepass</span><i aria-hidden="true"></i></a>
+  <nav class="nav" aria-label="Main">
+    <a href="events.html">Shows</a>
+    <a href="index.html#how">How it works</a>
+    <a href="organizer.html">Host a show</a>
+    <a class="outline" href="tickets.html" aria-current="page">My tickets</a>
+  </nav>
+</header>
+
+<main class="wrap">
+  <p class="kicker">Ready at the door</p>
+  <h1>Your <span class="italic accent">tickets.</span></h1>
+  <div class="list" id="list"></div>
+</main>
+
+<script>
+  // BACKEND: GET /api/tickets -> [{ id, eventTitle, date, venue, row, seat, tier, qrToken, status }]
+  // Render the real QR from qrToken (signed, server-issued). The pattern below is a placeholder.
+  // "Request a refund": POST /api/tickets/:id/refund -> status becomes 'refund_requested'.
+  var TICKETS = [
+    { id: 'GP-7QX2-C6', title: 'Neon Nights Live', date: 'Sat 6 Dec · 7:30 PM', venue: 'Open Air Arena', row: 'C', seat: '6', tier: 'Mid', refund: false },
+    { id: 'GP-7QX2-C7', title: 'Neon Nights Live', date: 'Sat 6 Dec · 7:30 PM', venue: 'Open Air Arena', row: 'C', seat: '7', tier: 'Mid', refund: false }
+  ];
+
+  function qr(seed) {
+    var cells = '', n = 11;
+    for (var y = 0; y < n; y++) for (var x = 0; x < n; x++) {
+      var corner = (x < 3 && y < 3) || (x > n - 4 && y < 3) || (x < 3 && y > n - 4);
+      var on = corner || ((x * 7 + y * 13 + seed.length * 3 + x * y) % 3 === 0);
+      if (on) cells += '<rect x="' + x * 8 + '" y="' + y * 8 + '" width="8" height="8"/>';
+    }
+    return '<svg width="112" height="112" viewBox="0 0 88 88" fill="#0D0A10" role="img" aria-label="QR code for ticket ' + seed + '">' + cells + '</svg>';
+  }
+
+  function render() {
+    document.getElementById('list').innerHTML = TICKETS.map(function (t, i) {
+      var btn = t.refund
+        ? '<span class="tag" style="background:#E7DFD2">REFUND REQUESTED</span>'
+        : '<button type="button" class="btn btn-ghost" data-i="' + i + '">Request a refund</button>';
+      return '<article class="ticket' + (t.refund ? ' refunded' : '') + '" aria-label="Ticket, row ' + t.row + ' seat ' + t.seat + '">' +
+        '<div class="ticket-main"><span class="tag">ADMIT ONE</span>' +
+        '<h2>' + t.title + '</h2><p class="meta">' + t.date + ' · ' + t.venue + '</p>' +
+        '<div class="cols"><div><div class="k">Row</div><div class="v">' + t.row + '</div></div><div><div class="k">Seat</div><div class="v">' + t.seat + '</div></div><div><div class="k">Tier</div><div class="v">' + t.tier + '</div></div></div>' +
+        '<div class="row-actions">' + btn + '<button type="button" class="btn btn-ghost">Add to calendar</button></div></div>' +
+        '<div class="ticket-stubside">' + qr(t.id) + '<span class="code">' + t.id + '</span></div></article>';
+    }).join('');
+    document.querySelectorAll('[data-i]').forEach(function (b) {
+      b.addEventListener('click', function () { TICKETS[+b.dataset.i].refund = true; render(); });
+    });
+  }
+  render();
+</script>
+</body>
+</html>

@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gatepass: pick your seats</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,500;1,6..96,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/gatepass.css">
+<style>
+.title-row{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px 40px;padding:32px 48px 0}
+.title-row h1{margin:14px 0 8px;font-size:clamp(44px,5.6vw,72px);line-height:.95;letter-spacing:-.035em}
+.layout{display:flex;flex-wrap:wrap;align-items:flex-start;gap:40px 48px;padding:28px 48px 72px}
+.map{flex:999 1 640px;min-width:0}
+.stage-glow{width:560px;max-width:80%;height:120px;margin:0 auto -62px;border-radius:50%;background:rgba(255,179,71,.12)}
+.stage-line{width:300px;max-width:60%;height:3px;margin:0 auto 10px;background:var(--amber);border-radius:2px}
+.stage-label{margin:0 0 30px;text-align:center;font-size:11px;font-weight:600;letter-spacing:.3em;color:var(--quiet)}
+.map-scroll{overflow-x:auto;padding:4px 0 8px}
+.rows{display:flex;flex-direction:column;align-items:center;gap:8px;min-width:760px}
+.row{display:flex;align-items:center;justify-content:center;gap:10px}
+.row .rl{width:24px;text-align:center;font-family:var(--font-display);font-style:italic;font-size:20px;color:var(--muted)}
+.row .tier{width:70px;font-size:12px;color:var(--quiet)}
+.row .seats{display:flex;align-items:center;gap:2px}
+.aisle{width:26px}
+aside{flex:1 1 340px;max-width:400px;min-width:0}
+.stub h2{margin:10px 0 4px;font-size:36px;line-height:1;letter-spacing:-.03em}
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <a class="logo" href="index.html"><span>gatepass</span><i aria-hidden="true"></i></a>
+  <nav class="nav" aria-label="Main">
+    <a href="events.html" aria-current="page">Shows</a>
+    <a href="index.html#how">How it works</a>
+    <a href="organizer.html">Host a show</a>
+    <a class="outline" href="tickets.html">My tickets</a>
+  </nav>
+</header>
+
+<main>
+  <section class="title-row">
+    <div>
+      <p class="kicker">Sat 6 Dec · 7:30 PM</p>
+      <h1>Neon Nights <span class="italic">Live</span></h1>
+      <p class="muted" style="margin:0;font-size:17px">Open Air Arena · pick up to six seats</p>
+    </div>
+    <div class="chip"><span class="dot-live" aria-hidden="true"></span><span>Seats update live</span></div>
+  </section>
+
+  <div class="layout">
+    <section class="map" aria-label="Seat map">
+      <div class="stage-glow" aria-hidden="true"></div>
+      <div class="stage-line" aria-hidden="true"></div>
+      <p class="stage-label" aria-hidden="true">STAGE</p>
+      <div class="map-scroll"><div class="rows" id="rows"></div></div>
+      <ul class="legend" aria-label="Seat legend">
+        <li><span class="sw"></span>Available</li>
+        <li><span class="sw yours"></span>Yours</li>
+        <li><span class="sw held"></span>Someone is paying</li>
+        <li><span class="sw taken"></span>Taken</li>
+      </ul>
+    </section>
+
+    <aside>
+      <div class="stub">
+        <div class="stub-body" style="padding-bottom:20px">
+          <p class="kicker" id="count-label"></p>
+          <h2>Your seats</h2>
+          <p class="muted" id="limit-note" style="margin:0 0 14px;font-size:14px"></p>
+          <p class="muted" id="empty-note" style="margin:0;padding:18px 0;font-size:15px" hidden>Choose a seat on the map to begin.</p>
+          <ul id="selected" style="list-style:none;margin:0;padding:0"></ul>
+        </div>
+        <div class="perf" aria-hidden="true"><span></span></div>
+        <div class="stub-body" style="padding-top:12px">
+          <div class="total" style="margin-bottom:20px"><span class="label" style="color:var(--muted)">Total</span><b id="total">₹0</b></div>
+          <a class="btn btn-amber btn-block" id="hold-link" href="checkout.html">Hold these seats</a>
+          <button class="btn btn-block" id="hold-disabled" type="button" disabled hidden>Hold these seats</button>
+          <p class="muted" style="margin:14px 0 0;font-size:13px">Held for ten minutes. You pay in the next step.</p>
+        </div>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<script>
+  // BACKEND:
+  //  - initial state: GET /api/events/:id/seats  -> [{ id:'C6', row:'C', number:6, tier:'Mid', price:1800, state:'available|held|taken' }]
+  //  - live updates:  EventSource('/api/events/:id/seats/stream') -> {seatId, state}; update SEAT_STATE and re-render
+  //  - "Hold these seats": POST /api/bookings { eventId, seatIds } then go to checkout.html?booking=:id
+  var ROWS = [
+    { l: 'A', tier: 'Front', price: 2400 }, { l: 'B', tier: 'Front', price: 2400 },
+    { l: 'C', tier: 'Mid', price: 1800 },   { l: 'D', tier: 'Mid', price: 1800 },
+    { l: 'E', tier: 'Back', price: 1200 },  { l: 'F', tier: 'Back', price: 1200 }
+  ];
+  var TAKEN = ['A3','A4','A11','B2','B12','C1','C12','C13','D5','D6','D14','E3','E9','F1','F2','F8'];
+  var HELD = ['A7','B5','C9','D2','E6'];
+  var MAX = 6;
+  var picked = ['C6', 'C7'];
+
+  function fmt(n) { return '₹' + n.toLocaleString('en-IN'); }
+  function seatState(id) {
+    if (TAKEN.indexOf(id) > -1) return 'taken';
+    if (HELD.indexOf(id) > -1) return 'held';
+    if (picked.indexOf(id) > -1) return 'selected';
+    return 'available';
+  }
+  var STATE_TEXT = { available: 'available', taken: 'taken', held: 'held by someone else', selected: 'selected' };
+
+  function renderMap() {
+    var html = '';
+    ROWS.forEach(function (r) {
+      html += '<div class="row"><span class="rl">' + r.l + '</span><div class="seats">';
+      for (var n = 1; n <= 14; n++) {
+        var id = r.l + n;
+        if (n === 8) html += '<div class="aisle"></div>';
+        var st = seatState(id);
+        var x = n - 7.5;
+        var ty = -Math.round(x * x * 0.45);
+        var icon = '';
+        if (st === 'selected') icon = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M2.5 7.5l3 3 6-7" stroke="#0D0A10" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        if (st === 'taken') icon = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="#8E8294" stroke-width="1.8" stroke-linecap="round"/></svg>';
+        html += '<button type="button" class="seat" data-id="' + id + '" data-state="' + st + '" style="transform:translateY(' + ty + 'px)"' +
+          (st === 'taken' || st === 'held' ? ' disabled' : '') +
+          ' aria-pressed="' + (st === 'selected') + '" aria-label="Row ' + r.l + ', seat ' + n + ', ' + r.tier + ' tier, ' + fmt(r.price) + ', ' + STATE_TEXT[st] + '">' +
+          '<span class="seat-dot">' + icon + '</span></button>';
+      }
+      html += '</div><span class="tier">' + r.tier + '</span></div>';
+    });
+    document.getElementById('rows').innerHTML = html;
+    document.querySelectorAll('#rows .seat').forEach(function (b) {
+      b.addEventListener('click', function () { toggle(b.dataset.id); });
+    });
+  }
+
+  function toggle(id) {
+    var i = picked.indexOf(id);
+    if (i > -1) picked.splice(i, 1);
+    else if (picked.length < MAX) picked.push(id);
+    render();
+    var again = document.querySelector('#rows .seat[data-id="' + id + '"]');
+    if (again) again.focus();
+  }
+
+  function renderStub() {
+    var sorted = picked.slice().sort(function (a, b) {
+      if (a[0] !== b[0]) return a[0] < b[0] ? -1 : 1;
+      return parseInt(a.slice(1), 10) - parseInt(b.slice(1), 10);
+    });
+    var total = 0;
+    document.getElementById('selected').innerHTML = sorted.map(function (id) {
+      var r = ROWS.filter(function (x) { return x.l === id[0]; })[0];
+      total += r.price;
+      return '<li class="line-item"><div><div class="t">Row ' + id[0] + ', seat ' + id.slice(1) + '</div><div class="s">' + r.tier + '</div></div>' +
+        '<div style="display:flex;align-items:center;gap:2px"><span class="t">' + fmt(r.price) + '</span>' +
+        '<button type="button" class="icon-btn" data-remove="' + id + '" aria-label="Remove row ' + id[0] + ', seat ' + id.slice(1) + '">' +
+        '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M2 2l10 10M12 2L2 12" stroke="#B8ADBD" stroke-width="2" stroke-linecap="round"/></svg></button></div></li>';
+    }).join('');
+    document.querySelectorAll('[data-remove]').forEach(function (b) {
+      b.addEventListener('click', function () { toggle(b.dataset.remove); });
+    });
+    var n = sorted.length;
+    document.getElementById('count-label').textContent = n === 1 ? '1 seat chosen' : n + ' seats chosen';
+    document.getElementById('limit-note').textContent = n >= MAX ? 'That is the maximum of six.' : 'Choose up to six.';
+    document.getElementById('total').textContent = fmt(total);
+    document.getElementById('empty-note').hidden = n !== 0;
+    document.getElementById('hold-link').hidden = n === 0;
+    document.getElementById('hold-disabled').hidden = n !== 0;
+  }
+
+  function render() { renderMap(); renderStub(); }
+  render();
+</script>
+</body>
+</html>
