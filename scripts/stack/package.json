@@ -1,0 +1,17 @@
+{
+  "name": "@gatepass/stack",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Boots the whole system (real Kafka, Redis, Postgres, every service, the web app) as local processes.",
+  "dependencies": {
+    "@gatepass/catalog": "workspace:*",
+    "@gatepass/events": "workspace:*",
+    "@gatepass/gateway": "workspace:*",
+    "@gatepass/testing": "workspace:*",
+    "kafkajs": "^2.2.4",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1"
+  }
+}

@@ -1,5 +1,5 @@
 /* States the mockups imply but do not draw: loading, empty, error, expired. Tokens only. */
-.state {
+.notice {
   margin: 22px 0;
   padding: 18px 20px;
   border: 1px dashed var(--outline);
@@ -8,20 +8,20 @@
   line-height: 1.5;
   color: var(--muted);
 }
-.state strong {
+.notice strong {
   font-weight: 600;
   color: var(--text);
 }
-.state a {
+.notice a {
   font-weight: 600;
 }
-.state[data-tone='amber'] {
+.notice[data-tone='amber'] {
   border-color: var(--amber);
 }
-.state[data-tone='danger'] {
+.notice[data-tone='danger'] {
   border-color: var(--danger);
 }
-.state .btn {
+.notice .btn {
   margin-top: 14px;
 }
 .loading {

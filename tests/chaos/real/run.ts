@@ -23,7 +23,7 @@ import {
   sleep,
   startKafka,
   type ManagedProcess,
-} from './infra';
+} from '../../../scripts/stack/infra';
 import { checkInvariants } from '../src/invariants';
 import { chance, mulberry32, pick } from '../src/rng';
 

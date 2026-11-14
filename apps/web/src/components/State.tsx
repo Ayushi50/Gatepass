@@ -13,7 +13,7 @@ export function State({
   role?: 'status' | 'alert';
 }) {
   return (
-    <div className="state" data-tone={tone} role={role}>
+    <div className="notice" data-tone={tone} role={role}>
       {title ? <strong>{title} </strong> : null}
       {children}
     </div>

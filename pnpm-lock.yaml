@@ -352,6 +352,31 @@ importers:
         specifier: ^8.23.1
         version: 8.23.1
 
+  scripts/stack:
+    dependencies:
+      '@gatepass/catalog':
+        specifier: workspace:*
+        version: link:../../services/catalog
+      '@gatepass/events':
+        specifier: workspace:*
+        version: link:../../libs/events
+      '@gatepass/gateway':
+        specifier: workspace:*
+        version: link:../../services/gateway
+      '@gatepass/testing':
+        specifier: workspace:*
+        version: link:../../libs/testing
+      kafkajs:
+        specifier: ^2.2.4
+        version: 2.2.4
+      pg:
+        specifier: ^8.23.1
+        version: 8.23.1
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
+
   services/analytics:
     dependencies:
       '@gatepass/db':

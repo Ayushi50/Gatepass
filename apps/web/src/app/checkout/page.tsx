@@ -7,6 +7,7 @@ import { Loading, State } from '@/components/State';
 import { api, ApiError, type Booking, type Seat } from '@/lib/api';
 import { useEvent } from '@/lib/events';
 import { clock, dateTimeOf, fmt, fmtMinor, sortSeats, splitSeat, splitTitle } from '@/lib/format';
+import { clockSkew, secondsLeft } from '@/lib/hold';
 import { useRequireRole } from '@/lib/hooks';
 import { GATEWAY_METHOD, testToken, type PayMethod } from '@/lib/payment';
 import { idempotencyKeyFor } from '@/lib/storage';
@@ -67,7 +68,7 @@ function Checkout() {
   const refresh = useCallback(async () => {
     try {
       const b = await api<Booking>(`/api/bookings/${bookingId}`);
-      setSkew(Date.parse(b.serverTime) - Date.now()); // the countdown follows the SERVER's clock
+      setSkew(clockSkew(b.serverTime, Date.now())); // the countdown follows the SERVER's clock
       lastBooking.current = b;
       setBooking(b);
       setLoadError(null);
