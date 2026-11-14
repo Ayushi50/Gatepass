@@ -1,0 +1,15 @@
+event.published
+booking.requested
+booking.confirmed
+booking.cancelled
+seats.held
+seats.hold_failed
+seats.released
+seats.sold
+hold.expired
+payment.succeeded
+payment.failed
+refund.requested
+refund.completed
+ticket.issued
+ticket.voided
