@@ -208,9 +208,6 @@ importers:
 
   apps/web:
     dependencies:
-      jsqr:
-        specifier: ^1.4.0
-        version: 1.4.0
       next:
         specifier: ^15.5.29
         version: 15.5.29(@babel/core@7.29.13(supports-color@8.1.1))(@playwright/test@1.65.0)(@types/node@20.19.43)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -257,6 +254,9 @@ importers:
       jsdom:
         specifier: ^31.0.1
         version: 31.0.1(@noble/hashes@1.8.0)
+      jsqr:
+        specifier: ^1.4.0
+        version: 1.4.0
       pixelmatch:
         specifier: ^8.0.0
         version: 8.0.0

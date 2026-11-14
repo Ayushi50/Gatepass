@@ -33,3 +33,5 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm --filter @gatepass/web typecheck
+      - run: pnpm --filter @gatepass/web build

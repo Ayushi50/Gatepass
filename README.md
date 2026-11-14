@@ -2,7 +2,7 @@
 
 Ticket booking for live events, built as an event-driven microservices system: Kafka (Redpanda), Postgres per service, Redis, NestJS services, and a Next.js frontend built from the designs in [`design/`](design/).
 
-> **Status: Phase 4 (resilience).** Holds expire by themselves, a payment that loses the race with an expiry is refunded automatically, refunds run as a reverse saga with organizer approval, dead letters can be replayed, high-demand shows use a Redis waiting room, and a seeded chaos test proves the system ends consistent under crashes, duplicates, outages and reordering. The frontend (Phase 5) and observability/load tests (Phase 6) come next.
+> **Status: Phase 5 (frontend).** A Next.js app built from `design/` (pixel-identical to it), one command to run the whole system, and a real-browser test that books, pays, gets a QR ticket, checks in, refunds and queues. Phase 6 (observability and load tests) is next.
 
 ## Architecture
 
@@ -63,6 +63,8 @@ refund: ticket valid→refund_requested + refund.requested ─▶ booking (REQUE
 | `libs/messaging` | KafkaJS publisher and consumer, retry with backoff, DLQ                                      |
 | `libs/db`        | Pool factory, SQL migration runner, env helper                                               |
 | `libs/testing`   | In-process Postgres and in-memory broker for tests                                           |
+| `apps/web`       | Next.js frontend, built from `design/` (pixel-identical, see ADR 0016)                       |
+| `scripts/stack`  | `pnpm stack`: boots the whole system as local processes                                      |
 | `services/*`     | catalog, seat-inventory, booking, payment, ticket, notification, analytics, gateway (NestJS) |
 | `tests/saga`     | Cross-service saga tests                                                                     |
 | `design/`        | Read-only UI source of truth                                                                 |
@@ -78,7 +80,25 @@ pnpm typecheck
 pnpm schema:lint # buf lint
 ```
 
-## Run the services
+## Run everything (one command)
+
+You need Node 20+, pnpm, Java (for Kafka) and an extracted [Apache Kafka](https://kafka.apache.org/downloads) (3.9 works; it runs without ZooKeeper). No Docker.
+
+```bash
+pnpm install
+KAFKA_HOME=/path/to/kafka_2.13-3.9.0 pnpm stack
+```
+
+This starts Kafka, Redis and Postgres, all eight services and the web app, publishes the five demo shows and sells out Jazz on the Roof, then prints the address (http://127.0.0.1:3100). Payments use the fake provider and complete by themselves. "Continue" on the sign-in page signs you in as a demo user: attendee, organizer (owns the demo shows) or door staff.
+
+```bash
+KAFKA_HOME=... pnpm e2e                       # boots the stack and drives a real browser through it
+pnpm --filter @gatepass/web visual            # the design vs the app, pixel by pixel
+pnpm --filter @gatepass/web test              # frontend unit tests
+KAFKA_HOME=... pnpm chaos:real                # kill -9 services at random against the real stack
+```
+
+## Run the services by hand
 
 There is no Docker Compose stack. Provide a Postgres server (one database and role per service) and a Kafka-compatible broker (for example Redpanda), set the variables in `.env.example`, and create the topics in `libs/events` (topic name = event type). Then, per service:
 

@@ -11,7 +11,7 @@
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "typecheck": "pnpm generate && tsc -p tsconfig.json --noEmit",
-    "test": "pnpm generate && jest --selectProjects unit",
+    "test": "pnpm generate && jest --selectProjects unit && pnpm --filter @gatepass/web test",
     "schema:lint": "pnpm --filter @gatepass/events lint",
     "schema:breaking": "pnpm --filter @gatepass/events breaking",
     "replay": "ts-node --transpile-only libs/messaging/bin/replay.ts",
