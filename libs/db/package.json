@@ -1,0 +1,15 @@
+{
+  "name": "@gatepass/db",
+  "version": "0.0.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "@gatepass/outbox": "workspace:*",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@gatepass/testing": "workspace:*",
+    "@types/pg": "^8.23.1"
+  }
+}
