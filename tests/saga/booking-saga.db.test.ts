@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import type { Pool } from 'pg';
 import { createEvent, buildSeatMap } from '@gatepass/catalog';
 import {
+  approveRefund,
   createBooking,
   getBooking,
   bookingHandler,
@@ -11,6 +12,7 @@ import {
   CONSUMED_TOPICS as INVENTORY_TOPICS,
   getSeats,
   seatInventoryHandler,
+  sweepExpiredHolds,
 } from '@gatepass/seat-inventory';
 import {
   CONSUMED_TOPICS as PAYMENT_TOPICS,
@@ -25,6 +27,7 @@ import {
   QrKeyRing,
   checkIn,
   listTickets,
+  requestRefund,
   ticketHandler,
   CONSUMED_TOPICS as TICKET_TOPICS,
 } from '@gatepass/ticket';
@@ -35,12 +38,18 @@ import {
 import {
   analyticsHandler,
   getActivity,
+  getRefunds,
   getSummary,
   CONSUMED_TOPICS as ANALYTICS_TOPICS,
 } from '@gatepass/analytics';
 import { migrate } from '@gatepass/db';
 import { decodeEnvelope, type EventEnvelope } from '@gatepass/events';
-import { createMessageHandler, type DeadLetterPublisher } from '@gatepass/messaging';
+import {
+  createMessageHandler,
+  replayRecords,
+  type DeadLetterPublisher,
+  type DlqRecord,
+} from '@gatepass/messaging';
 import { OutboxRelay } from '@gatepass/outbox';
 import {
   InMemoryBroker,
@@ -66,9 +75,30 @@ const keys = new QrKeyRing('k1:' + 's'.repeat(40));
 type Service = (typeof SERVICES)[number];
 
 class Dlq implements DeadLetterPublisher {
-  messages: { topic: string }[] = [];
-  async publish(topic: string) {
-    this.messages.push({ topic });
+  messages: {
+    topic: string;
+    key: string | null;
+    value: Uint8Array | null;
+    headers: Record<string, string>;
+  }[] = [];
+  async publish(
+    topic: string,
+    message: { key: string | null; value: Uint8Array | null; headers: Record<string, string> },
+  ) {
+    this.messages.push({ topic, ...message });
+  }
+  /** What the replay CLI would read from this DLQ topic. */
+  records(topic: string): DlqRecord[] {
+    return this.messages
+      .filter((m) => m.topic === topic)
+      .map((m, i) => ({
+        topic,
+        partition: 0,
+        offset: String(i),
+        key: m.key,
+        value: m.value,
+        headers: m.headers,
+      }));
   }
 }
 
@@ -534,7 +564,7 @@ describe('resumable saga', () => {
     const b = await request(['A5']);
     await settle();
     expect(await bookingState(b.id)).toBe('REQUESTED');
-    expect(dlq.messages).toEqual([{ topic: 'booking.dlq' }]);
+    expect(dlq.messages.map((m) => m.topic)).toEqual(['booking.dlq']);
   });
 
   it('a broker outage between payment and sale loses nothing: the sale completes after recovery', async () => {
@@ -752,5 +782,341 @@ describe('failure path reaches notifications and the dashboard', () => {
       text: 'Payment failed · insufficient_funds',
     });
     expect(dlq.messages).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Phase 4: hold expiry, the expiry-vs-payment race, refunds, dead-letter replay
+// ---------------------------------------------------------------------------------------------
+
+const HOLD_TTL = 600_000;
+const GRACE = 60_000;
+/** Sweeps as if enough time has passed for every hold (and its grace window) to be over. */
+const expireAllHolds = () =>
+  sweepExpiredHolds(pool('inventory'), {
+    now: () => Date.now() + HOLD_TTL + GRACE + 1000,
+    graceMs: GRACE,
+  });
+const refundRows = async () =>
+  (
+    await pool('payment').query(
+      'SELECT id, state, amount_minor, automatic FROM refunds ORDER BY id',
+    )
+  ).rows;
+
+describe('HOLD EXPIRY', () => {
+  it('an abandoned hold is released: seats back on sale, booking cancelled, payment refused, dashboard updated', async () => {
+    const b = await heldBooking(['A1', 'A2']);
+    expect(await getSummary(pool('analytics'), 'show', 'o')).toMatchObject({ held: 2, left: 4 });
+
+    expect(await expireAllHolds()).toBe(1);
+    await settle();
+
+    expect(await getBooking(pool('booking'), b.id)).toMatchObject({
+      state: 'CANCELLED',
+      cancelReason: 'hold_expired',
+    });
+    expect(await seatStates()).toMatchObject({ A1: 'available', A2: 'available' });
+    const chain = ['seats.held', 'hold.expired', 'seats.released', 'booking.cancelled'];
+    expect(broker.published.map((m) => m.topic).filter((t) => chain.includes(t))).toEqual(chain);
+    expect(published('seats.released')[0]!.causationId).toBe(published('hold.expired')[0]!.eventId);
+    expect(published('booking.cancelled')[0]!.causationId).toBe(
+      published('seats.released')[0]!.eventId,
+    );
+
+    await expect(payBooking(b.id)).rejects.toMatchObject({ code: 'booking_closed' });
+    expect(await getSummary(pool('analytics'), 'show', 'o')).toMatchObject({ held: 0, left: 6 });
+    const feed = await getActivity(pool('analytics'), 'show', 'o');
+    expect(feed.filter((f) => f.text.endsWith('returned to sale'))).toHaveLength(1); // not said twice
+
+    const other = await heldBooking(['A1', 'A2'], 'bob'); // and someone else can have them
+    expect(await bookingState(other.id)).toBe('HELD');
+    expect(dlq.messages).toHaveLength(0);
+  });
+
+  it('a hold that has not expired is left alone, and so is a paid booking', async () => {
+    const live = await heldBooking(['A1']);
+    const paid = await completedBooking(['A2']);
+    expect(await sweepExpiredHolds(pool('inventory'), { graceMs: GRACE })).toBe(0);
+    await settle();
+    expect(await bookingState(live.id)).toBe('HELD');
+    expect(await bookingState(paid.id)).toBe('CONFIRMED');
+    await expireAllHolds();
+    await settle();
+    expect(await bookingState(live.id)).toBe('CANCELLED');
+    expect(await bookingState(paid.id)).toBe('CONFIRMED'); // sold seats are never swept
+    expect(await seatStates()).toMatchObject({ A1: 'available', A2: 'taken' });
+  });
+});
+
+describe('EXPIRY VS PAYMENT RACE, END TO END', () => {
+  it('paid in time (before the hold is swept): the sale stands and the sweep finds nothing', async () => {
+    const b = await heldBooking(['A1']);
+    const paid = await payBooking(b.id);
+    await sendWebhook(paid.paymentId, 'succeeded');
+    await settle();
+    expect(await expireAllHolds()).toBe(0);
+    await settle();
+    expect(await bookingState(b.id)).toBe('CONFIRMED');
+    expect(await seatStates()).toMatchObject({ A1: 'taken' });
+    expect(await refundRows()).toEqual([]);
+    expect(await ticketRows()).toEqual([{ seat_id: 'A1', status: 'valid' }]);
+  });
+
+  it('paid too late (the hold was swept first): the buyer is refunded automatically, no ticket, no double sale', async () => {
+    const b = await heldBooking(['A1', 'A2']);
+    const paid = await payBooking(b.id); // the payment is in flight at the provider...
+    await expireAllHolds(); // ...when the hold is released
+    await settle();
+    expect(await bookingState(b.id)).toBe('CANCELLED');
+
+    await sendWebhook(paid.paymentId, 'succeeded'); // ...and only then does the provider confirm it
+    await settle();
+
+    expect(await bookingState(b.id)).toBe('CANCELLED'); // the booking is not resurrected
+    expect(await seatStates()).toMatchObject({ A1: 'available', A2: 'available' });
+    expect(await ticketRows()).toEqual([]);
+    expect(published('seats.sold')).toHaveLength(0);
+    expect(published('seats.sale_failed')).toHaveLength(1);
+
+    // the money comes back: one charge, one automatic refund of all of it, then notified
+    expect(provider.charges.size).toBe(1);
+    expect(provider.refunds.size).toBe(1);
+    expect(await refundRows()).toEqual([
+      { id: `auto-${paid.paymentId}`, state: 'COMPLETED', amount_minor: '200000', automatic: true },
+    ]);
+    const done = published('refund.completed');
+    expect(done).toHaveLength(1);
+    if (done[0]!.payload.case !== 'refundCompleted') throw new Error('wrong payload');
+    expect(done[0]!.payload.value).toMatchObject({
+      automatic: true,
+      amountMinor: 200000n,
+      ticketId: '',
+    });
+    expect((await notificationRows()).map((n) => n.template)).toContain('refund-automatic');
+    expect(dlq.messages).toHaveLength(0);
+  });
+
+  it('the same race with every event delivered twice still refunds exactly once', async () => {
+    broker.deliveries = 2;
+    const b = await heldBooking(['A3']);
+    const paid = await payBooking(b.id);
+    await expireAllHolds();
+    await settle();
+    await sendWebhook(paid.paymentId, 'succeeded');
+    await settle();
+    expect(provider.refunds.size).toBe(1);
+    expect(published('refund.completed')).toHaveLength(1);
+    expect(await seatStates()).toMatchObject({ A3: 'available' });
+  });
+});
+
+describe('REFUNDS (reverse saga)', () => {
+  it('request -> organizer approval -> refund -> ticket void -> seat back on sale, other ticket untouched', async () => {
+    const b = await completedBooking(['A1', 'A2']);
+    const [t1, t2] = await listTickets(pool('ticket'), keys, 'u1');
+    expect(await getSummary(pool('analytics'), 'show', 'o')).toMatchObject({
+      sold: 2,
+      refundRequests: 0,
+    });
+
+    // 1. the buyer asks: the ticket is locked at once
+    const req = await requestRefund(pool('ticket'), t1!.id, 'u1');
+    await settle();
+    expect(await checkIn(pool('ticket'), keys, t1!.qrToken, 'gate')).toEqual({ status: 'invalid' }); // cannot be used any more
+    expect(
+      (await listTickets(pool('ticket'), keys, 'u1')).find((t) => t.id === t1!.id)!.status,
+    ).toBe('refund_requested');
+
+    // the organizer sees it
+    const open = await getRefunds(pool('analytics'), 'show', 'o');
+    expect(open).toEqual([
+      {
+        id: req.refundId,
+        bookingId: b.id,
+        userId: 'u1',
+        seatId: 'A1',
+        amountMinor: 100000,
+        currency: 'INR',
+        state: 'requested',
+      },
+    ]);
+    expect(await getSummary(pool('analytics'), 'show', 'o')).toMatchObject({ refundRequests: 1 });
+    expect(provider.refunds.size).toBe(0); // nothing is paid back before approval
+
+    // 2. only the organizer of THIS show can approve
+    await expect(approveRefund(pool('booking'), req.refundId, 'someone-else')).rejects.toThrow(
+      'not your event',
+    );
+    expect(provider.refunds.size).toBe(0);
+    expect(await approveRefund(pool('booking'), req.refundId, 'o')).toEqual({
+      refundId: req.refundId,
+      state: 'APPROVED',
+    });
+    await approveRefund(pool('booking'), req.refundId, 'o'); // a double click
+    await settle();
+
+    // 3. the money moves once; 4. the ticket is void; 5. the seat is for sale again
+    expect(provider.refunds.size).toBe(1);
+    expect(await refundRows()).toEqual([
+      { id: req.refundId, state: 'COMPLETED', amount_minor: '100000', automatic: false },
+    ]);
+    expect(published('refund.approved')).toHaveLength(1);
+    expect(published('refund.completed')).toHaveLength(1);
+    expect(published('ticket.voided')).toHaveLength(1);
+    expect(
+      (await pool('ticket').query('SELECT seat_id, status FROM tickets ORDER BY seat_id')).rows,
+    ).toEqual([
+      { seat_id: 'A1', status: 'void' },
+      { seat_id: 'A2', status: 'valid' },
+    ]);
+    expect(await seatStates()).toMatchObject({ A1: 'available', A2: 'taken' });
+    const released = published('seats.released');
+    expect(released).toHaveLength(1);
+    if (released[0]!.payload.case !== 'seatsReleased') throw new Error('wrong payload');
+    expect(released[0]!.payload.value).toMatchObject({ seatIds: ['A1'], reason: 'refunded' });
+
+    // everything downstream knows: dashboard, notification, door, booking
+    expect(await getSummary(pool('analytics'), 'show', 'o')).toMatchObject({
+      sold: 1,
+      left: 5,
+      refundRequests: 0,
+    });
+    expect((await getRefunds(pool('analytics'), 'show', 'o'))[0]!.state).toBe('completed');
+    expect((await notificationRows()).map((n) => n.template)).toContain('refund-completed');
+    expect(await checkIn(pool('ticket'), keys, t1!.qrToken, 'gate')).toEqual({ status: 'invalid' });
+    expect(await checkIn(pool('ticket'), keys, t2!.qrToken, 'gate')).toMatchObject({
+      status: 'valid',
+    });
+    expect(await bookingState(b.id)).toBe('CONFIRMED'); // a partial refund does not cancel the booking
+    expect((await pool('booking').query('SELECT state FROM refunds')).rows).toEqual([
+      { state: 'COMPLETED' },
+    ]);
+
+    // the freed seat can be bought again
+    const again = await heldBooking(['A1'], 'bob');
+    expect(await bookingState(again.id)).toBe('HELD');
+    expect(dlq.messages).toHaveLength(0);
+  });
+
+  it('every event delivered twice: still one refund, one void, one release', async () => {
+    broker.deliveries = 2;
+    await completedBooking(['A1']);
+    const [t] = await listTickets(pool('ticket'), keys, 'u1');
+    const req = await requestRefund(pool('ticket'), t!.id, 'u1');
+    await settle();
+    await approveRefund(pool('booking'), req.refundId, 'o');
+    await settle();
+    expect(provider.refunds.size).toBe(1);
+    expect(published('refund.completed')).toHaveLength(1);
+    expect(published('ticket.voided')).toHaveLength(1);
+    expect(published('seats.released')).toHaveLength(1);
+    expect(await refundRows()).toHaveLength(1);
+  });
+
+  it('with an asynchronous provider the refund waits for its webhook, then finishes the same way', async () => {
+    provider.refundMode = 'async';
+    await completedBooking(['A1']);
+    const [t] = await listTickets(pool('ticket'), keys, 'u1');
+    const req = await requestRefund(pool('ticket'), t!.id, 'u1');
+    await settle();
+    await approveRefund(pool('booking'), req.refundId, 'o');
+    await settle();
+    expect(await refundRows()).toEqual([
+      { id: req.refundId, state: 'PENDING', amount_minor: '100000', automatic: false },
+    ]);
+    expect(await seatStates()).toMatchObject({ A1: 'taken' }); // not returned until the money is
+
+    const hook = provider.buildRefundWebhook(req.refundId);
+    await handleWebhook(payDeps(), Buffer.from(hook.body), hook.headers);
+    await handleWebhook(payDeps(), Buffer.from(hook.body), hook.headers); // provider retries
+    await settle();
+    expect(await seatStates()).toMatchObject({ A1: 'available' });
+    expect(published('refund.completed')).toHaveLength(1);
+    expect((await pool('ticket').query('SELECT status FROM tickets')).rows).toEqual([
+      { status: 'void' },
+    ]);
+  });
+
+  it('a ticket cannot be refunded after it was used, and a used refund request cannot be scanned', async () => {
+    await completedBooking(['A1', 'A2']);
+    const [t1, t2] = await listTickets(pool('ticket'), keys, 'u1');
+    await checkIn(pool('ticket'), keys, t1!.qrToken, 'gate');
+    await expect(requestRefund(pool('ticket'), t1!.id, 'u1')).rejects.toMatchObject({
+      code: 'used',
+    });
+    await requestRefund(pool('ticket'), t2!.id, 'u1');
+    expect(await checkIn(pool('ticket'), keys, t2!.qrToken, 'gate')).toEqual({ status: 'invalid' });
+    expect(provider.refunds.size).toBe(0);
+  });
+
+  it('refunds can never add up to more than was paid', async () => {
+    await completedBooking(['A1', 'A2']);
+    const tickets = await listTickets(pool('ticket'), keys, 'u1');
+    for (const t of tickets) {
+      const req = await requestRefund(pool('ticket'), t.id, 'u1');
+      await settle();
+      await approveRefund(pool('booking'), req.refundId, 'o');
+      await settle();
+    }
+    expect(provider.refunds.size).toBe(2);
+    const total = await pool('payment').query('SELECT sum(amount_minor) AS t FROM refunds');
+    expect(Number(total.rows[0].t)).toBe(200000); // exactly what was paid
+    expect(await seatStates()).toMatchObject({ A1: 'available', A2: 'available' });
+  });
+});
+
+describe('DEAD-LETTER REPLAY', () => {
+  it('a poisoned message waits in the DLQ; after the fix, replaying it completes the saga, and replaying again changes nothing', async () => {
+    failNext['seats.held'] = 99; // booking cannot process seats.held: a bug, say
+    const b = await request(['A5']);
+    await settle();
+    expect(await bookingState(b.id)).toBe('REQUESTED');
+    const dead = dlq.records('booking.dlq');
+    expect(dead).toHaveLength(1);
+    expect(dead[0]!.headers).toMatchObject({
+      'x-dlq-original-topic': 'seats.held',
+      'x-dlq-consumer': 'booking',
+    });
+
+    failNext['seats.held'] = 0; // the fix is deployed
+
+    // a dry run changes nothing
+    const dry = await replayRecords(
+      dead,
+      async (m) => broker.publishBatch([{ ...m, key: m.key ?? '' }]),
+      { dryRun: true },
+    );
+    expect(dry.replayed).toHaveLength(1);
+    await settle();
+    expect(await bookingState(b.id)).toBe('REQUESTED');
+
+    // the real replay
+    const publish = async (m: {
+      topic: string;
+      key: string | null;
+      value: Uint8Array;
+      headers: Record<string, string>;
+    }) => broker.publishBatch([{ ...m, key: m.key ?? '' }]);
+    const report = await replayRecords(dead, publish);
+    expect(report.replayed).toHaveLength(1);
+    await settle();
+    expect(await bookingState(b.id)).toBe('HELD');
+
+    // the replay also reached every other consumer of seats.held (payment, analytics): all ignored it
+    const payables = await pool('payment').query('SELECT count(*) FROM payables');
+    expect(payables.rows[0].count).toBe('1');
+    expect(await getSummary(pool('analytics'), 'show', 'o')).toMatchObject({ held: 1 });
+    expect(published('seats.held')).toHaveLength(2); // original + replay on the wire
+    expect(await transitionsOf(b.id)).toEqual(['>REQUESTED', 'REQUESTED>HELD']); // but applied once
+
+    // replaying the same dead letters again is harmless
+    await replayRecords(dead, publish);
+    await settle();
+    expect(await bookingState(b.id)).toBe('HELD');
+    expect(await transitionsOf(b.id)).toEqual(['>REQUESTED', 'REQUESTED>HELD']);
+    expect(
+      (await getActivity(pool('analytics'), 'show', 'o')).filter((f) => f.type === 'seats.held'),
+    ).toHaveLength(1);
   });
 });
