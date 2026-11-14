@@ -1,12 +1,14 @@
 # ADR 0004: One Postgres server, one database and one role per service
 
+> Status: the Docker Compose stack was removed (see ADR 0001). This records the intended layout for when infrastructure returns; the init script is in git history.
+
 ## Context
 
 Rule 8: services never read another service's database. The brief asks for "one database per service".
 
 ## Decision
 
-Local Compose runs a single Postgres container with seven databases (catalog, booking, seat_inventory, payment, ticket, notification, analytics). Each has its own login role. `CONNECT` is revoked from `PUBLIC`, so a role cannot even connect to another service's database. Passwords come from env vars with throwaway dev defaults (`.env.example`).
+Local Compose ran a single Postgres container with seven databases (catalog, booking, seat_inventory, payment, ticket, notification, analytics). Each has its own login role. `CONNECT` is revoked from `PUBLIC`, so a role cannot even connect to another service's database. Passwords come from env vars with throwaway dev defaults (`.env.example`).
 
 ## Trade-offs
 

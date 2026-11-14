@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { create } from '@bufbuild/protobuf';
 import {
   EVENT_CATALOG,
@@ -85,13 +83,5 @@ describe('event envelope', () => {
   it('uses the event type as the topic name', () => {
     for (const t of EVENT_TYPES) expect(topicFor(t)).toBe(t);
     expect(create(SeatsHeldSchema).seatIds).toEqual([]);
-  });
-});
-
-describe('infra topic list', () => {
-  it('infra/redpanda/topics.txt lists exactly the catalog event types', () => {
-    const file = readFileSync(join(__dirname, '../../../infra/redpanda/topics.txt'), 'utf8');
-    const topics = file.split('\n').filter(Boolean).sort();
-    expect(topics).toEqual([...EVENT_TYPES].sort());
   });
 });

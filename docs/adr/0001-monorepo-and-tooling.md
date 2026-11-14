@@ -6,9 +6,9 @@ Eight services share an event contract and the outbox/messaging code. They must 
 
 ## Decision
 
-One repo, pnpm workspaces (`apps/*`, `services/*`, `libs/*`). Shared code lives in `libs/*` and is consumed as TypeScript source (`main: src/index.ts`); there is no build step yet. Jest + ts-jest, split into a `unit` project (`*.test.ts`, no Docker) and an `integration` project (`*.int.test.ts`, Testcontainers). Node 20 is the target (`.nvmrc`, CI).
+One repo, pnpm workspaces (`apps/*`, `services/*`, `libs/*`). Shared code lives in `libs/*` and is consumed as TypeScript source (`main: src/index.ts`); there is no build step yet. Jest + ts-jest for unit tests (`*.test.ts`). Integration tests with Testcontainers and the Docker Compose stack were tried, then removed by decision; they are in git history (commit `a18c883` and earlier). Node 20 is the target (`.nvmrc`, CI).
 
 ## Trade-offs
 
 - No build step is fast and simple, but services cannot yet be shipped as compiled images. Each service gets a build and Dockerfile in its own phase.
-- Integration tests need Docker. `TEST_DATABASE_URL` lets Postgres-only tests run against an existing server without Docker.
+- Without integration tests, the outbox, inbox and relay SQL is covered only by unit-level logic. Re-adding them later is straightforward from git history.

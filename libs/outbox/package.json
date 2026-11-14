@@ -9,7 +9,6 @@
     "pg": "^8.23.1"
   },
   "devDependencies": {
-    "@gatepass/testing": "workspace:*",
     "@types/pg": "^8.23.1"
   }
 }

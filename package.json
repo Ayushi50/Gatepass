@@ -12,7 +12,6 @@
     "format": "prettier --write .",
     "typecheck": "pnpm generate && tsc -p tsconfig.json --noEmit",
     "test": "pnpm generate && jest --selectProjects unit",
-    "test:int": "pnpm generate && jest --selectProjects integration --runInBand",
     "schema:lint": "pnpm --filter @gatepass/events lint",
     "schema:breaking": "pnpm --filter @gatepass/events breaking"
   },

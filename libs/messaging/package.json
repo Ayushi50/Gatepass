@@ -8,8 +8,5 @@
     "@gatepass/events": "workspace:*",
     "@gatepass/outbox": "workspace:*",
     "kafkajs": "^2.2.4"
-  },
-  "devDependencies": {
-    "@gatepass/testing": "workspace:*"
   }
 }

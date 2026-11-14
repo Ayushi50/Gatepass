@@ -1,3 +1,0 @@
-# `docker compose up --wait` from the repo root starts the whole local stack.
-include:
-  - infra/docker-compose.yml
