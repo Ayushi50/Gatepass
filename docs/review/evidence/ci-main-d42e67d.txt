@@ -1,0 +1,17 @@
+Set up job success
+Run actions/checkout@v4 success
+Run pnpm/action-setup@v4 success
+Run actions/setup-node@v4 success
+Run pnpm install --frozen-lockfile success
+Schema lint success
+Schema breaking-change check (against the base branch) skipped
+Run pnpm generate success
+Run pnpm lint success
+Run pnpm typecheck success
+Run pnpm test failure
+Run pnpm --filter @gatepass/web typecheck skipped
+Run pnpm --filter @gatepass/web build skipped
+Post Run actions/setup-node@v4 skipped
+Post Run pnpm/action-setup@v4 success
+Post Run actions/checkout@v4 success
+Complete job success

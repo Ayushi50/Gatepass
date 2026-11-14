@@ -1,0 +1,11 @@
+$ vitest run
+
+ RUN  v5.1.0 /Users/ayushipandey/Documents/GitHub/Gatepass/Gatepass/apps/web
+
+
+ Test Files  3 passed (3)
+      Tests  34 passed (34)
+   Start at  01:55:40
+   Duration  2.02s (tests 58%, environment 39%, import 3%)
+
+exit 0

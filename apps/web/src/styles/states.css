@@ -32,3 +32,13 @@
   color: var(--muted);
   margin: 22px 0;
 }
+
+/*
+ * The design marks its stand-in buttons (the disabled "Pay" and "Hold these seats") with the
+ * `hidden` attribute, but `.btn { display: inline-flex }` overrides the browser's default for it,
+ * so both the live and the stand-in button were drawn at once. Honour `hidden` everywhere.
+ * See docs/adr/0018.
+ */
+[hidden] {
+  display: none !important;
+}

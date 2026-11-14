@@ -1,0 +1,60 @@
+├ ○ /checkout                               6 kB         112 kB
+├ ○ /events                              3.44 kB         109 kB
+├ ○ /organizer                           5.37 kB         111 kB
+├ ○ /seats                               6.29 kB         112 kB
+├ ○ /sign-in                             2.56 kB         108 kB
+├ ○ /status                              4.11 kB         110 kB
+├ ○ /tickets                             13.2 kB         119 kB
+└ ○ /waiting-room                        4.14 kB         110 kB
++ First Load JS shared by all             102 kB
+  ├ chunks/57-fcaf7b465f4a83af.js          46 kB
+  ├ chunks/b7bce6a3-1d594c4c075f96f1.js  54.2 kB
+  └ other shared chunks (total)          1.99 kB
+
+
+○  (Static)  prerendered as static content
+
+web app is up
+
+Running 7 tests using 1 worker
+
+  ✘  1 review/review.spec.ts:52:1 › landing page and the show list: filters work and the sold-out show cannot be opened (734ms)
+  -  2 review/review.spec.ts:73:1 › seat map: at most six seats, a seventh click is ignored; netbanking pays; ticket has a QR
+  -  3 review/review.spec.ts:104:1 › card pays; a declined card shows the failure state
+  -  4 review/review.spec.ts:128:1 › an unpaid hold runs out on screen, payment is switched off, and the seat goes back on sale
+  -  5 review/review.spec.ts:148:1 › door: valid, already used and invalid; organizer dashboard; waiting room
+  -  6 review/review.spec.ts:199:1 › phone width (390px): every page fits without sideways scrolling
+  -  7 review/review.spec.ts:227:1 › no page logged a console error during the whole run
+
+
+  1) review/review.spec.ts:52:1 › landing page and the show list: filters work and the sold-out show cannot be opened 
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('#show-list li')
+    Expected substring: "Campus Fest Finale"
+    Error: strict mode violation: locator('#show-list li') resolved to 2 elements:
+        1) <li>…</li> aka getByRole('listitem').filter({ hasText: '14DECCampus Fest' })
+        2) <li>…</li> aka getByRole('listitem').filter({ hasText: '27DECMidnight MarketFestival' })
+
+    Call log:
+      - Expect "toContainText" locator('#show-list li') with timeout 20000ms
+      - waiting for locator('#show-list li')
+
+
+      63 |   await expect(page.locator('#show-list li')).toContainText('The Laugh Lab');
+      64 |   await page.getByRole('button', { name: 'Festivals' }).click();
+    > 65 |   await expect(page.locator('#show-list li')).toContainText('Campus Fest Finale');
+         |                                               ^
+      66 |   await shot(page, '03-events-filtered');
+      67 |   await page.getByRole('button', { name: 'All' }).click();
+      68 |   const jazz = page.locator('#show-list li', { hasText: 'Jazz on the Roof' });
+        at /Users/ayushipandey/Documents/GitHub/Gatepass/Gatepass/apps/web/review/review.spec.ts:65:47
+
+    Error Context: test-results-review/review-landing-page-and-th-284ba-d-out-show-cannot-be-opened/error-context.md
+
+  1 failed
+    review/review.spec.ts:52:1 › landing page and the show list: filters work and the sold-out show cannot be opened 
+  6 did not run
+service logs: /var/folders/ly/bf5xq4610817vg7ljxr3x3h40000gn/T/gatepass-chaos-Cfd4l8
+[ELIFECYCLE] Command failed with exit code 1.

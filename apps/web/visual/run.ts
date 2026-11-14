@@ -301,8 +301,10 @@ async function shoot(
   await page.waitForLoadState('networkidle', { timeout: 2500 }).catch(() => undefined);
   if (which === 'next') await s.setupNext?.(page);
   else await s.setupDesign?.(page);
+  // `[hidden]` is honoured on both sides: the design's CSS accidentally un-hides its stand-in
+  // buttons, the app does not (ADR 0018). Everything else is compared as drawn.
   await page.addStyleTag({
-    content: `*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}${s.css ?? ''}`,
+    content: `*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}[hidden]{display:none!important}${s.css ?? ''}`,
   });
   if (s.normalize) await page.evaluate(s.normalize);
   await page.waitForTimeout(400);

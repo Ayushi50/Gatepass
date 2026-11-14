@@ -1,0 +1,4 @@
+$ pnpm generate && tsc -p tsconfig.json --noEmit
+$ pnpm --filter @gatepass/events generate
+$ buf generate
+exit 0

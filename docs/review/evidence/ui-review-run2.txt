@@ -1,0 +1,44 @@
+Running 7 tests using 1 worker
+
+  ✓  1 review/review.spec.ts:52:1 › landing page and the show list: filters work and the sold-out show cannot be opened (713ms)
+  ✓  2 review/review.spec.ts:73:1 › seat map: at most six seats, a seventh click is ignored; netbanking pays; ticket has a QR (3.1s)
+  ✓  3 review/review.spec.ts:104:1 › card pays; a declined card shows the failure state (4.7s)
+  ✘  4 review/review.spec.ts:128:1 › an unpaid hold runs out on screen, payment is switched off, and the seat goes back on sale (45.3s)
+  -  5 review/review.spec.ts:148:1 › door: valid, already used and invalid; organizer dashboard; waiting room
+  -  6 review/review.spec.ts:199:1 › phone width (390px): every page fits without sideways scrolling
+  -  7 review/review.spec.ts:227:1 › no page logged a console error during the whole run
+
+
+  1) review/review.spec.ts:128:1 › an unpaid hold runs out on screen, payment is switched off, and the seat goes back on sale 
+
+    Error: expect(locator).toBeHidden() failed
+
+    Locator:  locator('#pay-btn')
+    Expected: hidden
+    Received: visible
+    Timeout:  20000ms
+
+    Call log:
+      - Expect "toBeHidden" locator('#pay-btn') with timeout 20000ms
+      - waiting for locator('#pay-btn')
+        44 × locator resolved to <button hidden="" id="pay-btn" type="button" class="btn btn-amber btn-block">Pay ₹699</button>
+           - unexpected value "visible"
+
+
+      135 |   await expect(seat(other.page, 'C1')).toHaveAttribute('data-state', 'held');
+      136 |   await expect(page.locator('#expired')).toBeVisible({ timeout: 40_000 });
+    > 137 |   await expect(page.locator('#pay-btn')).toBeHidden();
+          |                                          ^
+      138 |   await expect(page.locator('#pay-off')).toBeDisabled();
+      139 |   await shot(page, '12-checkout-hold-expired');
+      140 |   // the other buyer's map frees the seat by itself (stream), once the server releases it
+        at /Users/ayushipandey/Documents/GitHub/Gatepass/Gatepass/apps/web/review/review.spec.ts:137:42
+
+    Error Context: test-results-review/review-an-unpaid-hold-runs-5d024--the-seat-goes-back-on-sale/error-context.md
+
+  1 failed
+    review/review.spec.ts:128:1 › an unpaid hold runs out on screen, payment is switched off, and the seat goes back on sale 
+  3 did not run
+  3 passed (54.2s)
+service logs: /var/folders/ly/bf5xq4610817vg7ljxr3x3h40000gn/T/gatepass-chaos-gbsgiL
+[ELIFECYCLE] Command failed with exit code 1.

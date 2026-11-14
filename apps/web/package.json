@@ -9,7 +9,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "visual": "ts-node --transpile-only --project tsconfig.node.json visual/run.ts",
-    "e2e": "ts-node --transpile-only --project tsconfig.node.json e2e/run.ts"
+    "e2e": "ts-node --transpile-only --project tsconfig.node.json e2e/run.ts",
+    "review": "ts-node --transpile-only --project tsconfig.node.json review/run.ts"
   },
   "dependencies": {
     "next": "^15.5.29",

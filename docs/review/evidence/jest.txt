@@ -1,0 +1,746 @@
+Running one project: unit
+PASS unit services/payment/test/refunds.db.test.ts (6.101 s)
+  refund.approved -> refund.completed
+    ✓ pays the ticket price back once and publishes refund.completed with everything consumers need (138 ms)
+    ✓ DUPLICATE approvals (same event, re-sent event, 10 at once) refund exactly once (96 ms)
+    ✓ refunds two tickets of one booking separately, and never more than was paid (21 ms)
+    ✓ concurrent refunds cannot together exceed the payment (33 ms)
+    ✓ rejects refunding a booking that was never paid (1 ms)
+    ✓ a provider outage leaves the refund pending; a retry completes it without a second refund (46 ms)
+    ✓ ASYNC provider: stays pending until the signed webhook; the webhook completes it once (19 ms)
+    ✓ a refund webhook for an unknown refund is recorded and acknowledged; a forged one is rejected (17 ms)
+  automatic refund (seats.sale_failed)
+    ✓ refunds the whole payment, marked automatic with no ticket, once (14 ms)
+    ✓ with no successful payment it fails loudly instead of inventing a refund (1 ms)
+    ✓ is routed by the payment handler together with refund.approved (76 ms)
+
+PASS unit services/gateway/test/waiting-room.test.ts (6.536 s)
+  queue
+    ✓ is first come, first served, with 1-based positions and an estimated wait from the rate (33 ms)
+    ✓ joining again keeps your place instead of going to the back
+    ✓ 300 people joining at the same moment get 300 distinct places, 1..300 (31 ms)
+    ✓ queues are independent per event; unknown users are not queued (1 ms)
+  admission
+    ✓ admits from the front, in order, and everyone behind moves up (7 ms)
+    ✓ an admitted user who joins again is told they are admitted, not put back in the queue (4 ms)
+    ✓ admission is short-lived: it ends by itself (1305 ms)
+    ✓ never admits more than are waiting, and 0 or negative counts admit nobody (1 ms)
+    ✓ tracks which events have a queue, and forgets an event once its queue is empty (3 ms)
+    ✓ two admit calls at once never admit the same person twice (6 ms)
+  admitter (the configured admission rate)
+    ✓ lets in exactly the configured number per second (13 ms)
+    ✓ handles fractional rates and short ticks: 2.5 per second over 4 seconds is 10 (40 ms)
+    ✓ does not store up a burst while the queue is empty (6 ms)
+    ✓ with two gateways, only one admits: the rate is not doubled (12 ms)
+    ✓ another gateway takes over when the leader disappears (284 ms)
+
+PASS unit services/seat-inventory/test/hold.db.test.ts (6.709 s)
+  event.published handler
+    ✓ creates all seats as available, once, even if delivered twice (11 ms)
+  holdSeats (all or none)
+    ✓ holds every requested seat (5 ms)
+    ✓ holds nothing when one seat is already held (2 ms)
+    ✓ reports unknown seats and invalid requests (3 ms)
+    ✓ the database itself refuses a seat that is held without an owner (13 ms)
+  booking.requested handler
+    ✓ emits seats.held with a server-computed expiry, correlated and caused by the request (28 ms)
+    ✓ emits seats.hold_failed (and holds nothing) when a seat is taken (4 ms)
+    ✓ handles a duplicate delivery once (24 ms)
+  NO DOUBLE BOOKING under concurrency
+    ✓ 1,000 concurrent buyers, 100 seats: exactly 100 succeed (739 ms)
+    ✓ overlapping multi-seat requests never double-hold or half-hold (358 ms)
+  seats.held carries the amount
+    ✓ sums the held seats price and currency (14 ms)
+  payment.succeeded handler
+    ✓ sells the held seats and emits seats.sold, once (19 ms)
+    ✓ a second payment.succeeded event for an already-sold booking changes nothing (13 ms)
+    ✓ reports seats.sale_failed (not an error) when the booking holds no seats, so payment can refund (4 ms)
+  payment.failed handler
+    ✓ returns held seats to sale and emits seats.released, once (6 ms)
+    ✓ never un-sells a confirmed booking (late or stray failure) (5 ms)
+    ✓ released seats can be held by someone else (4 ms)
+
+  console.log
+    refund-vs-door outcomes over 60 runs: admitted=59 refund-locked=1
+
+      at Object.<anonymous> (services/ticket/test/ticket.db.test.ts:347:13)
+
+PASS unit services/payment/test/payments.db.test.ts (6.917 s)
+  payables (from seats.held / seats.released)
+    ✓ records amount, currency and expiry, once (53 ms)
+    ✓ seats.released closes the payable, so paying is refused (57 ms)
+  startPayment
+    ✓ creates a payment for the held amount, calls the provider once and returns processing (6 ms)
+    ✓ validates input (4 ms)
+    ✓ refuses a booking with nothing to pay, a closed booking and an expired hold (4 ms)
+    ✓ uses the server clock for the expiry decision (191 ms)
+  idempotency (no double charge)
+    ✓ the same key and request returns the same payment and never charges twice (9 ms)
+    ✓ 20 concurrent identical requests produce exactly one payment and one charge (75 ms)
+    ✓ the same key with a different request is rejected (422) (7 ms)
+    ✓ a different key while a payment is live is rejected (409), concurrently too (18 ms)
+    ✓ survives a provider outage: the payment is kept, a retry with the same key completes it (8 ms)
+    ✓ a provider that refuses outright fails the payment and publishes payment.failed (17 ms)
+  webhooks
+    ✓ success: marks SUCCEEDED and publishes payment.succeeded with the amount (7 ms)
+    ✓ failure: marks FAILED, closes the payable and publishes payment.failed with the reason (22 ms)
+    ✓ DUPLICATE: the same delivery twice publishes payment.succeeded once and changes nothing (23 ms)
+    ✓ DUPLICATE under concurrency: 15 simultaneous identical deliveries apply exactly once (26 ms)
+    ✓ a different delivery repeating the final state is recorded but does nothing (55 ms)
+    ✓ LATE / OUT OF ORDER: a failure after success (or success after failure) cannot change the final state (29 ms)
+    ✓ a webhook that beats our own bookkeeping still settles the payment (5 ms)
+    ✓ an unknown payment is recorded and acknowledged, not applied (1 ms)
+    ✓ a mismatching amount is recorded and NOT applied (4 ms)
+    ✓ a bad signature is rejected and stores nothing (4 ms)
+  HTTP
+    ✓ POST /payments answers 202 and maps errors to 400 / 404 / 409 / 422 / 503 (81 ms)
+    ✓ POST /webhooks/fake verifies the signature over the raw body (10 ms)
+
+PASS unit services/ticket/test/ticket.db.test.ts (7.02 s)
+  issuing tickets
+    ✓ issues one signed ticket per seat and publishes ticket.issued in the same transaction (15 ms)
+    ✓ is idempotent: a duplicate booking.confirmed makes no extra tickets or events (5 ms)
+    ✓ refuses to guess: an unknown seat or show throws so it is retried and dead-lettered (13 ms)
+    ✓ lists only the caller's tickets (2 ms)
+  check-in
+    ✓ admits a valid ticket once, then reports it used with the time (2 ms)
+    ✓ TWO GATES AT ONCE: 50 simultaneous scans admit exactly one (237 ms)
+    ✓ scans of different tickets are independent (8 ms)
+    ✓ rejects forged, truncated, foreign and unknown tokens as invalid, and admits nobody (7 ms)
+  HTTP
+    ✓ GET /tickets needs a userId and returns that user's tickets with QR tokens (36 ms)
+    ✓ POST /checkin answers 200 valid, 409 used, 404 invalid, 400 for a bad request (19 ms)
+  refund request (locks the ticket, publishes refund.requested)
+    ✓ locks a valid ticket and publishes refund.requested with the price, seat and organizer (7 ms)
+    ✓ only the owner can ask (404 otherwise), and unknown tickets are 404 (6 ms)
+    ✓ a used ticket cannot be refunded; a second request is refused and publishes nothing more (34 ms)
+    ✓ concurrent requests for one ticket publish exactly one refund.requested (17 ms)
+    ✓ REFUND vs DOOR: a request racing a scan has exactly one winner, 60 times over (334 ms)
+    ✓ a ticket with a refund pending cannot be scanned at the door (4 ms)
+  refund.completed voids the ticket
+    ✓ voids it permanently, announces ticket.voided once, and the QR is dead (7 ms)
+    ✓ voids only the refunded ticket of a booking; the other stays valid (3 ms)
+    ✓ an automatic refund (no ticket) or an unrequested ticket changes nothing (1 ms)
+  HTTP refund
+    ✓ POST /tickets/:id/refund answers 202, 404 for a stranger, 409 for a repeat, 400 without a user (11 ms)
+
+  console.log
+    race outcomes over 150 runs: {"sold":83,"refunded":67}
+
+      at Object.<anonymous> (services/seat-inventory/test/expiry.db.test.ts:267:13)
+
+PASS unit services/seat-inventory/test/expiry.db.test.ts (7.638 s)
+  hold expiry sweeper
+    ✓ releases an expired hold, announcing hold.expired then seats.released, in one step (24 ms)
+    ✓ does nothing before the hold plus grace has passed, and never touches live holds or sold seats (23 ms)
+    ✓ is idempotent: a second sweep finds nothing and publishes nothing (14 ms)
+    ✓ several sweepers at once release a booking exactly once (58 ms)
+    ✓ released seats can be held by someone else (127 ms)
+    ✓ respects the per-sweep limit and finishes the rest next time (48 ms)
+  EXPIRY VS PAYMENT RACE
+    ✓ payment first: the sale stands, and a later sweep finds nothing to release (23 ms)
+    ✓ sweep first: the payment finds no hold, reports seats.sale_failed, and sells nothing (15 ms)
+    ✓ a duplicate payment.succeeded after a failed sale does not report twice (19 ms)
+    ✓ 150 randomised interleavings: every booking ends sold XOR (released and told to refund), never both, never neither (1729 ms)
+  refund.completed returns the seat to sale
+    ✓ moves the one refunded seat from sold to available and announces it, once (18 ms)
+    ✓ an automatic refund changes no seat (8 ms)
+    ✓ a refund naming a seat that is not sold to that booking changes nothing (12 ms)
+
+PASS unit services/catalog/test/catalog.db.test.ts
+  seat map
+    ✓ builds ids, rows and tiers
+  createEvent
+    ✓ stores the event and publishes event.published with the full seat map, atomically (8 ms)
+    ✓ rejects a duplicate id and leaves no partial data or event behind (3 ms)
+    ✓ rejects an event with no seats or no title
+  waiting room flag
+    ✓ is published in event.published and shown in the summary; off by default (5 ms)
+  demo events (design/events.html)
+    ✓ has the five shows with an A-F, 14-per-row layout and three tiers (1 ms)
+    ✓ publishes all five and lists them in date order with "from" prices (18 ms)
+  HTTP
+    ✓ GET /events returns summaries (12 ms)
+    ✓ GET /events/:id returns one, 404 for unknown (6 ms)
+
+PASS unit libs/outbox/test/outbox.db.test.ts
+  migrations
+    ✓ can be applied twice (6 ms)
+  outbox write
+    ✓ commits the business row and the event together (11 ms)
+    ✓ rolls back the business row and the event together (16 ms)
+    ✓ rejects the same eventId twice (7 ms)
+  outbox relay
+    ✓ publishes pending events in order and marks them published (50 ms)
+    ✓ loses nothing across a broker outage (47 ms)
+    ✓ only one relay is active at a time (no reordering) (310 ms)
+    ✓ start/stop drains events in the background (31 ms)
+  inbox (idempotent consumer)
+    ✓ runs the handler once for duplicate deliveries (9 ms)
+    ✓ handles the same event once per consumer, not once globally (7 ms)
+    ✓ does not run the handler twice under concurrent duplicates (51 ms)
+    ✓ rolls the inbox row back when the handler fails, so a retry succeeds (9 ms)
+    ✓ commits handler writes and outgoing events atomically (5 ms)
+
+PASS unit services/analytics/test/analytics.db.test.ts
+  consumes every event type
+    ✓ subscribes to all 17 topics
+  summary
+    ✓ starts with everything available, with tier totals from event.published (19 ms)
+    ✓ tracks hold, sale and release, so tiles and tier bars always add up (29 ms)
+    ✓ hold.expired returns a seat to sale (9 ms)
+    ✓ an older event can never overwrite a newer one (out of order, late, replayed) (14 ms)
+    ✓ seat events that arrive BEFORE event.published are not lost (7 ms)
+    ✓ a duplicate delivery changes nothing (4 ms)
+  activity feed
+    ✓ stores design-style lines newest first, flags failures, and attributes payments to the show (6 ms)
+    ✓ respects the limit and ignores events that are not feed material (11 ms)
+  ownership
+    ✓ only the event's organizer can read it; unknown events are 404 (3 ms)
+  HTTP
+    ✓ serves summary and activity, enforcing the organizer (51 ms)
+  refunds list and tile
+    ✓ lists open requests with who, seat and amount, and counts them in the tile (10 ms)
+    ✓ approval and completion move a refund through the states and out of the tile (12 ms)
+    ✓ out-of-order and duplicate events never move a refund backwards (12 ms)
+    ✓ an automatic refund (no ticket) is not a refund request (8 ms)
+    ✓ is scoped to the organizer, over HTTP too (14 ms)
+    ✓ feeds the live activity with refund lines (7 ms)
+
+PASS unit tests/telemetry/telemetry.db.test.ts
+  ONE BOOKING = ONE TRACE, across services
+    ✓ the request, the seat service and the booking service share a trace, each a child of the one before (48 ms)
+    ✓ the trace survives a broker outage: the context sits in the outbox row until the relay can publish (88 ms)
+    ✓ a failing consumer marks its span failed and the dead letter is counted (47 ms)
+  METRICS count each thing once, however messages arrive
+    ✓ a booking that is confirmed counts once as requested, held and confirmed, with a payment time (59 ms)
+    ✓ EVERY MESSAGE DELIVERED TWICE changes no counter, and the duplicates are counted (64 ms)
+    ✓ a refused hold and a failed payment are counted by reason (126 ms)
+    ✓ an expired hold counts as expired, once, and the booking as cancelled for that reason (72 ms)
+    ✓ a rolled-back booking is not counted (54 ms)
+    ✓ the unsent-events gauge shows a stuck relay and drains when it recovers (49 ms)
+
+PASS unit services/gateway/test/gateway.http.test.ts (9.084 s)
+  GET /api/events
+    ✓ lists the shows with live status and a major-unit "from" price (32 ms)
+  GET /api/events/:id/seats
+    ✓ returns the seat map in the shape the UI expects (4 ms)
+    ✓ maps an unknown event to 404 (2 ms)
+  POST /api/bookings
+    ✓ requires a token (35 ms)
+    ✓ is for attendees only (7 ms)
+    ✓ takes the user from the token, ignoring any userId in the body (3 ms)
+    ✓ passes validation errors through as 400 (3 ms)
+  GET /api/bookings/:id
+    ✓ returns holdExpiresAt and serverTime to the owner (5 ms)
+    ✓ hides other people's bookings (403), unknown ids (404) and reports outages (503) (11 ms)
+  POST /api/bookings/:id/pay
+    ✓ requires a token and the attendee role (4 ms)
+    ✓ requires an Idempotency-Key header (3 ms)
+    ✓ only the owner can pay (403), unknown bookings are 404 (6 ms)
+    ✓ forwards the verified user, key, method and token and answers 202 (3 ms)
+    ✓ maps payment errors: 400 bad input, 409 already paying, 422 key reuse (3 ms)
+  SSE /api/bookings/:id/stream
+    ✓ needs a token and refuses other people's bookings (39 ms)
+    ✓ sends a snapshot first, then each step live, only for that booking (28 ms)
+  GET /api/tickets
+    ✓ needs a token and shows only the signed-in attendee's tickets with their QR tokens (6 ms)
+  POST /api/checkin
+    ✓ is for door staff only (3 ms)
+    ✓ answers 200 valid, 409 used, 404 invalid with the bodies the scanner shows (5 ms)
+    ✓ records WHICH staff member scanned, taken from the token (2 ms)
+    ✓ rejects a missing, non-string or oversized token, and reports an outage as 503 (6 ms)
+  organizer dashboard
+    ✓ GET summary: organizer only, scoped to the token, maps 403 and 404 (7 ms)
+    ✓ SSE activity: refuses other organizers without leaking a subscription (6 ms)
+    ✓ SSE activity: snapshot of the recent feed first, then live lines for this show only (23 ms)
+  booking stream: the third light
+    ✓ a confirmed booking whose tickets exist reloads with the light on; without tickets it is off (13 ms)
+    ✓ ticket.issued arrives live as a step (2 ms)
+  SSE /api/events/:id/seats/stream
+    ✓ pushes only that event's seat changes to the browser as they happen (4 ms)
+
+PASS unit services/booking/test/booking.db.test.ts
+  createBooking
+    ✓ stores the booking as REQUESTED and publishes booking.requested in one transaction (7 ms)
+    ✓ includes server time so the client never relies on its own clock (5 ms)
+    ✓ rejects no seats and writes nothing
+    ✓ rejects more than six and writes nothing (2 ms)
+    ✓ rejects duplicates and writes nothing (2 ms)
+    ✓ rejects blank id and writes nothing (1 ms)
+    ✓ allows exactly six seats (15 ms)
+    ✓ getBooking throws NotFoundError for an unknown id (5 ms)
+  seats.held
+    ✓ moves REQUESTED -> HELD and stores the server-computed expiry (15 ms)
+    ✓ is idempotent for a duplicate delivery (4 ms)
+    ✓ fails (so it is retried then dead-lettered) for a booking that does not exist (1 ms)
+  seats.hold_failed
+    ✓ cancels the booking and publishes booking.cancelled caused by the failure (4 ms)
+    ✓ publishes booking.cancelled once, even if delivered twice (2 ms)
+    ✓ a late hold_failed does not undo a HELD booking (out of order) (3 ms)
+    ✓ a late seats.held does not resurrect a CANCELLED booking (3 ms)
+  HTTP
+    ✓ POST /bookings creates, GET /bookings/:id reads with holdExpiresAt and serverTime (35 ms)
+    ✓ POST /bookings answers 400 for invalid input and GET answers 404 for unknown ids (9 ms)
+  payment path
+    ✓ stores the amount from seats.held (21 ms)
+    ✓ HELD -> PAID -> CONFIRMED, publishing booking.confirmed once with the amount (17 ms)
+    ✓ seats.sold overtaking payment.succeeded still confirms, and the late payment event is ignored (17 ms)
+    ✓ seats.released cancels a HELD booking with the release reason and publishes booking.cancelled (7 ms)
+    ✓ never cancels a booking that is already paid or confirmed (80 ms)
+    ✓ an EXPIRED hold cancels even a booking that already saw payment.succeeded (the payment will be refunded) (20 ms)
+    ✓ but an expired-hold release never un-confirms a confirmed booking (4 ms)
+    ✓ a payment for a booking that does not exist fails loudly (1 ms)
+  refund saga
+    ✓ records a request as REQUESTED, once, even if delivered twice (3 ms)
+    ✓ only the event's organizer can approve; unknown refunds are 404 (21 ms)
+    ✓ approval moves REQUESTED -> APPROVED and publishes refund.approved with everything payment needs (6 ms)
+    ✓ approving twice, or 10 times at once, publishes refund.approved exactly once (147 ms)
+    ✓ refund.completed finishes an approved refund; a completed refund can never go back (5 ms)
+    ✓ a completion that skipped approval, and an automatic refund, change nothing (3 ms)
+    ✓ a ticket can be refunded only once (second request for the same ticket is ignored) (1 ms)
+    ✓ HTTP: POST /refunds/:id/approve answers 200, 400, 403, 404 (13 ms)
+  ARRIVAL ORDER DOES NOT MATTER (events from different topics, dead-letter replays)
+    ✓ seats.sold before seats.held still ends CONFIRMED, and the late seats.held only fills in the hold (8 ms)
+    ✓ seats.released (hold expired) before seats.held still ends CANCELLED and is not resurrected (6 ms)
+    ✓ payment.succeeded before seats.held records the payment, and seats.sold then confirms (13 ms)
+    ✓ every ordering of {held, paid, sold} ends CONFIRMED, exactly one booking.confirmed (34 ms)
+    ✓ every ordering of {held, paid, released(expired)} ends CANCELLED, never confirmed (29 ms)
+    ✓ a payment_failed release cancels a booking even if seats.held was not seen yet (4 ms)
+
+PASS unit services/gateway/test/seat-stream.test.ts
+  toSeatUpdates
+    ✓ maps broker events to the seat-map states the UI draws (1 ms)
+    ✓ ignores events that do not change a seat
+  salesStatus
+    ✓ derives the status shown on the show list (1 ms)
+  toBookingUpdate
+    ✓ maps each step the status page lights up, with the reason where there is one
+    ✓ ignores events that are not part of a booking's progress
+
+PASS unit services/payment/test/providers.test.ts
+  payment state machine
+    ✓ only moves forward and never leaves a final state
+  FakeProvider
+    ✓ creates one charge per idempotency key, however often it is called (1 ms)
+    ✓ rejects immediately for the rejected token and can simulate an outage (1 ms)
+    ✓ produces webhooks that verify, and parses them
+    ✓ rejects a missing, wrong or tampered signature (10 ms)
+    ✓ ignores authentic events that are not payment events (1 ms)
+    ✓ refuses to be constructed in production (1 ms)
+  RazorpayTestProvider
+    ✓ refuses live keys (3 ms)
+    ✓ creates an order carrying our payment id, with basic auth (3 ms)
+    ✓ maps provider errors: 5xx/429/network are retryable, 4xx is a final rejection (1 ms)
+    refunds
+      ✓ refunds against the provider payment id with our refund id as the key, and maps the status (1 ms)
+      ✓ maps errors like charges: 5xx/429/network retryable, 4xx final (1 ms)
+      ✓ a signed refund.processed webhook names our refund (3 ms)
+    webhooks
+      ✓ verifies the HMAC-SHA256 signature over the raw body (known vector) (1 ms)
+      ✓ maps events: captured/order.paid succeed, payment.failed fails with the reason (1 ms)
+      ✓ ignores unrelated events, rejects bad signatures and missing ids (1 ms)
+
+PASS unit services/gateway/test/jwt.test.ts
+  jwt
+    ✓ round-trips claims (1 ms)
+    ✓ rejects a token signed with another secret (10 ms)
+    ✓ rejects an expired token (1 ms)
+    ✓ rejects a tampered payload (role escalation)
+    ✓ rejects alg "none" and any other algorithm (2 ms)
+    ✓ rejects malformed tokens and unknown roles (1 ms)
+
+PASS unit libs/messaging/test/replay.test.ts
+  toReplayMessage
+    ✓ goes back to the original topic with the original bytes and key, minus the dlq bookkeeping (2 ms)
+    ✓ refuses a record it cannot place
+  replayRecords
+    ✓ replays everything in DLQ order (1 ms)
+    ✓ can target one event id
+    ✓ stops at the limit
+    ✓ a dry run reports what it would do and publishes nothing (1 ms)
+    ✓ skips unreplayable records but carries on, and stops at once if publishing fails (6 ms)
+  parseReplayArgs
+    ✓ reads the options (1 ms)
+    ✓ falls back to KAFKA_BROKERS
+    ✓ rejects bad input clearly (6 ms)
+
+PASS unit services/ticket/test/qr-token.test.ts
+  QrKeyRing
+    ✓ signs and verifies, carrying only ids (1 ms)
+    ✓ rejects tampering with the payload or the signature (5 ms)
+    ✓ rejects malformed input of every kind (2 ms)
+    ✓ rejects a token signed with a key this ring does not know (6 ms)
+    ✓ supports rotation: new key signs, old key still verifies (3 ms)
+    ✓ refuses weak or malformed key configuration (36 ms)
+
+PASS unit services/notification/test/notification.db.test.ts
+  ticket.issued
+    ✓ logs one email and one SMS for the right user, never the QR token (11 ms)
+    ✓ uses the singular for one ticket (14 ms)
+    ✓ is idempotent: the same event twice, or a re-sent event, never notifies twice (11 ms)
+  payment.failed
+    ✓ logs one email saying the seats were released (7 ms)
+    ✓ is idempotent (8 ms)
+    ✓ skips an event that names no user (nobody to tell) without failing (9 ms)
+  refund.completed
+    ✓ emails the buyer that the refund was processed, with amount and seat (26 ms)
+    ✓ explains an automatic refund differently (11 ms)
+    ✓ is idempotent and skips an event that names no user (11 ms)
+  other events
+    ✓ ignores events it does not handle (7 ms)
+
+PASS unit libs/telemetry/test/telemetry.test.ts
+  with tracing OFF (the default)
+    ✓ costs nothing and changes nothing: no endpoint, no spans, no traceparent (6 ms)
+  with tracing ON
+    ✓ nests spans and gives them one trace (2 ms)
+    ✓ a traceparent carried in headers continues the trace in another "process" (1 ms)
+    ✓ a failing span is marked failed, keeps the error, and the error still propagates (10 ms)
+    ✓ outgoing HTTP headers get the active trace
+    ✓ the HTTP middleware continues the caller's trace, names the span by ROUTE and times it (2 ms)
+  metrics
+    ✓ asking twice returns the same metric, so libraries can share them
+    ✓ counters and histograms are exposed in the Prometheus text format (1 ms)
+
+PASS unit libs/messaging/test/handler.test.ts
+  backoff
+    ✓ doubles up to the cap (full jitter at the ceiling)
+    ✓ is never negative and never above the ceiling
+  runWithRetry
+    ✓ returns the first success without sleeping (1 ms)
+    ✓ retries until it succeeds
+    ✓ throws RetriesExhaustedError after maxAttempts (1 ms)
+  message handler (decode -> retry -> DLQ)
+    ✓ handles a good message and publishes nothing to the DLQ (8 ms)
+    ✓ retries a failing handler, then succeeds without dead-lettering (1 ms)
+    ✓ dead-letters a poison message after exhausting retries, with diagnostics (6 ms)
+    ✓ dead-letters an undecodable message immediately without calling the handler
+    ✓ dead-letters a null (tombstone) message (1 ms)
+    ✓ throws if the DLQ is unavailable, so the offset is not committed (5 ms)
+
+PASS unit services/booking/test/state-machine.test.ts
+  booking state machine
+    ✓ allows REQUESTED -> HELD and REQUESTED -> CANCELLED
+    ✓ allows the payment path HELD -> PAID -> CONFIRMED, and HELD -> CONFIRMED when seats.sold overtakes
+    ✓ allows HELD -> CANCELLED (payment failed) and PAID -> CANCELLED (expired hold), but never cancels a confirmed booking
+    ✓ treats CONFIRMED and CANCELLED as terminal (1 ms)
+    ✓ rejects every other move, including self-transitions and un-cancelling (6 ms)
+
+PASS unit libs/events/test/envelope.test.ts
+  event envelope
+    ✓ round-trips through the wire format (21 ms)
+    ✓ generates a unique UUIDv7 eventId each time (22 ms)
+    ✓ rejects a missing correlationId (9 ms)
+    ✓ rejects a missing producer (1 ms)
+    ✓ rejects a payload that does not match the eventType
+    ✓ rejects bytes that are not an envelope
+    ✓ exposes routing headers
+    ✓ keeps the catalog and the proto oneof in sync
+    ✓ uses the event type as the topic name (1 ms)
+
+PASS unit services/gateway/test/gateway.phase4.test.ts
+  events list
+    ✓ tells the frontend which shows use the waiting room (21 ms)
+  waiting room endpoints
+    ✓ require an attendee token (7 ms)
+    ✓ a show without a waiting room answers 409, an unknown show 404 (7 ms)
+    ✓ join gives a place and an estimated wait; repeating keeps the place; status agrees (17 ms)
+    ✓ once admitted, the status carries a pass for this user and this show that lasts as long as the admission (7 ms)
+  POST /api/bookings is gated by the waiting room
+    ✓ a high-demand show refuses a booking without an admission token (14 ms)
+    ✓ refuses garbage, another user's pass, another show's pass, and an access token posing as a pass (13 ms)
+    ✓ an admitted user can book, and the booking is made for the signed-in user (4 ms)
+    ✓ the pass can be reused while the admission lasts (e.g. a retry after a failed hold) (5 ms)
+    ✓ a pass stops working the moment the admission ends, even though its signature is still good (4 ms)
+    ✓ an expired pass is refused as expired (3 ms)
+    ✓ shows without a waiting room need no pass and are unaffected (2 ms)
+    ✓ still requires a normal login first (2 ms)
+  admission tokens
+    ✓ are bound to a user and a show, expire, and cannot be forged or turned into access tokens (7 ms)
+  refund endpoints
+    ✓ POST /api/tickets/:id/refund: attendee only, 202 on success, 404 and 409 mapped (9 ms)
+    ✓ GET /api/organizer/events/:id/refunds: organizer only and scoped to their shows (28 ms)
+    ✓ POST /api/refunds/:id/approve: organizer only; their id comes from the token; 403 and 404 mapped (26 ms)
+
+PASS unit libs/events/test/activity.test.ts
+  bookingCode
+    ✓ is stable, human-friendly and unambiguous (2 ms)
+  describeSeats / formatMoney
+    ✓ groups by row and pluralises, like the design feed (1 ms)
+    ✓ formats rupees Indian style (3 ms)
+  describeActivity
+    ✓ describes the events the organizer feed shows (2 ms)
+    ✓ describes refunds, and says nothing twice about an expiry (1 ms)
+    ✓ skips events that are not feed material or cannot be attributed to a show
+
+PASS unit libs/messaging/test/lag.test.ts
+  consumer lag
+    ✓ is what the group has not read, summed over partitions (1 ms)
+    ✓ a group that has committed nothing is behind by everything still in the log (1 ms)
+    ✓ never goes negative
+  dead-letter depth
+    ✓ is the messages still in the dead-letter topic
+  LagMonitor
+    ✓ publishes both gauges for its group, labelled by group, topic and dead-letter topic (1 ms)
+    ✓ a topic it cannot read yet is skipped, not fatal (1 ms)
+
+  console.log
+    seed 1: {"bookings":21,"paid":6,"failedPay":1,"refunds":1,"expiries":4,"duplicates":2,"dlq":11}
+
+      at Object.<anonymous> (tests/chaos/chaos.db.test.ts:479:15)
+
+[31m[Nest] 54025  - [39m11/15/2026, 1:55:36 AM [31m  ERROR[39m [38;5;3m[ExceptionsHandler] [39mTypeError: this.tickets.list is not a function
+    at list [90m(/Users/ayushipandey/Documents/GitHub/Gatepass/Gatepass/[39mservices/gateway/src/http/tickets.controller.ts:29:37[90m)[39m
+    at fn [90m(/Users/ayushipandey/Documents/GitHub/Gatepass/Gatepass/[39mservices/gateway/src/http/downstream.ts:15:18[90m)[39m
+    at TicketsController.list [90m(/Users/ayushipandey/Documents/GitHub/Gatepass/Gatepass/[39mservices/gateway/src/http/tickets.controller.ts:29:17[90m)[39m
+    at [90m/Users/ayushipandey/Documents/GitHub/Gatepass/Gatepass/[39mnode_modules/[4m.pnpm[24m/@nestjs+core@11.2.10_@nestjs+common@11.2.10_reflect-metadata@0.2.2_rxjs@7.8.2_supports-_928b124aaab97b4bd8848a3ccf54986d/node_modules/[4m@nestjs/core[24m/router/router-execution-context.js:55:37
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at [90m/Users/ayushipandey/Documents/GitHub/Gatepass/Gatepass/[39mnode_modules/[4m.pnpm[24m/@nestjs+core@11.2.10_@nestjs+common@11.2.10_reflect-metadata@0.2.2_rxjs@7.8.2_supports-_928b124aaab97b4bd8848a3ccf54986d/node_modules/[4m@nestjs/core[24m/router/router-execution-context.js:92:62
+    at [90m/Users/ayushipandey/Documents/GitHub/Gatepass/Gatepass/[39mnode_modules/[4m.pnpm[24m/@nestjs+core@11.2.10_@nestjs+common@11.2.10_reflect-metadata@0.2.2_rxjs@7.8.2_supports-_928b124aaab97b4bd8848a3ccf54986d/node_modules/[4m@nestjs/core[24m/router/router-proxy.js:9:17
+PASS unit services/gateway/test/dev-login.test.ts
+  POST /api/dev-login
+    ✓ does not exist unless it was switched on (340 ms)
+    when switched on
+      ✓ mints a token for each role that the gateway itself accepts (5 ms)
+      ✓ lets an attendee choose a name, so two browsers can be two people (1 ms)
+      ✓ the organizer is always the demo organizer, whatever name is sent (1 ms)
+      ✓ refuses unknown roles and unusable names (3 ms)
+      ✓ a minted token is a real login: it opens the attendee routes and not the organizer ones (78 ms)
+
+PASS unit libs/db/test/migrate.db.test.ts
+  migrate
+    ✓ applies outbox tables and service migrations once, in order (27 ms)
+    ✓ rolls a failing migration back and does not record it (5 ms)
+    ✓ is safe to run concurrently (19 ms)
+  requireEnv
+    ✓ returns the value or throws (1 ms)
+
+  console.log
+    seed 2: {"bookings":20,"paid":6,"failedPay":1,"refunds":4,"expiries":1,"duplicates":2,"dlq":11}
+
+      at Object.<anonymous> (tests/chaos/chaos.db.test.ts:479:15)
+
+  console.log
+    seed 3: {"bookings":22,"paid":5,"failedPay":2,"refunds":2,"expiries":6,"duplicates":3,"dlq":9}
+
+      at Object.<anonymous> (tests/chaos/chaos.db.test.ts:479:15)
+
+  console.log
+    seed 4: {"bookings":16,"paid":4,"failedPay":1,"refunds":1,"expiries":9,"duplicates":2,"dlq":6}
+
+      at Object.<anonymous> (tests/chaos/chaos.db.test.ts:479:15)
+
+PASS unit tests/saga/booking-saga.db.test.ts (11.495 s)
+  event publication feeds seat-inventory
+    ✓ turns event.published into seats that the seat map can show (139 ms)
+  happy hold
+    ✓ booking.requested -> seats.held -> booking HELD, one correlation id throughout (97 ms)
+  hold failure cancels the booking
+    ✓ second buyer for the same seat is CANCELLED and the first keeps the seat (113 ms)
+  payment happy path
+    ✓ HELD -> pay -> webhook -> seats sold -> CONFIRMED, one correlation id for the whole saga (129 ms)
+  DUPLICATE WEBHOOK DOES NOT DOUBLE CHARGE
+    ✓ the same webhook delivered repeatedly, and every broker event delivered twice, changes nothing after the first (129 ms)
+    ✓ a double-clicked Pay (same Idempotency-Key, concurrent) charges once (207 ms)
+    ✓ a late "failed" after success cannot undo a confirmed booking (153 ms)
+  PAYMENT FAILURE RELEASES SEATS AND CANCELS THE BOOKING
+    ✓ declined payment: payment.failed -> seats.released -> booking CANCELLED, seats bookable again (133 ms)
+    ✓ a provider that refuses the charge outright takes the same path (121 ms)
+    ✓ a duplicate failure webhook releases once (126 ms)
+  at-least-once delivery
+    ✓ delivering every hold event twice changes nothing (178 ms)
+  resumable saga
+    ✓ a consumer failing mid-saga is retried and the booking still reaches HELD (121 ms)
+    ✓ seat-inventory failing while selling is retried; the customer is charged once and ends CONFIRMED (178 ms)
+    ✓ a message that keeps failing is dead-lettered, and the booking stays REQUESTED, not lost (185 ms)
+    ✓ a broker outage between payment and sale loses nothing: the sale completes after recovery (152 ms)
+    ✓ a broker outage at the start loses nothing (161 ms)
+  FULL HAPPY PATH, END TO END
+    ✓ event -> hold -> pay -> sale -> confirmed -> tickets -> notifications -> dashboard -> check-in (306 ms)
+    ✓ two gates scanning the same QR at the same moment: exactly one is admitted (308 ms)
+    ✓ every event delivered twice: still one ticket per seat, one email, one SMS, one feed line each (60 ms)
+    ✓ a crash while issuing tickets is retried: the buyer still gets exactly one ticket per seat (55 ms)
+    ✓ a broker outage after the sale loses no ticket: they are issued once the broker is back (55 ms)
+  failure path reaches notifications and the dashboard
+    ✓ a declined payment emails the buyer, shows red on the feed and gives the seats back in the counts (54 ms)
+  HOLD EXPIRY
+    ✓ an abandoned hold is released: seats back on sale, booking cancelled, payment refused, dashboard updated (59 ms)
+    ✓ a hold that has not expired is left alone, and so is a paid booking (69 ms)
+  EXPIRY VS PAYMENT RACE, END TO END
+    ✓ paid in time (before the hold is swept): the sale stands and the sweep finds nothing (77 ms)
+    ✓ paid too late (the hold was swept first): the buyer is refunded automatically, no ticket, no double sale (74 ms)
+    ✓ the same race with every event delivered twice still refunds exactly once (129 ms)
+  REFUNDS (reverse saga)
+    ✓ request -> organizer approval -> refund -> ticket void -> seat back on sale, other ticket untouched (81 ms)
+    ✓ every event delivered twice: still one refund, one void, one release (118 ms)
+    ✓ with an asynchronous provider the refund waits for its webhook, then finishes the same way (62 ms)
+    ✓ a ticket cannot be refunded after it was used, and a used refund request cannot be scanned (51 ms)
+    ✓ refunds can never add up to more than was paid (67 ms)
+  DEAD-LETTER REPLAY
+    ✓ a poisoned message waits in the DLQ; after the fix, replaying it completes the saga, and replaying again changes nothing (50 ms)
+
+  console.log
+    seed 5: {"bookings":26,"paid":7,"failedPay":4,"refunds":0,"expiries":5,"duplicates":0,"dlq":15}
+
+      at Object.<anonymous> (tests/chaos/chaos.db.test.ts:479:15)
+
+  console.log
+    seed 6: {"bookings":19,"paid":5,"failedPay":1,"refunds":0,"expiries":7,"duplicates":3,"dlq":7}
+
+      at Object.<anonymous> (tests/chaos/chaos.db.test.ts:479:15)
+
+  console.log
+    seed 7: {"bookings":17,"paid":7,"failedPay":2,"refunds":0,"expiries":6,"duplicates":3,"dlq":7}
+
+      at Object.<anonymous> (tests/chaos/chaos.db.test.ts:479:15)
+
+  console.log
+    seed 8: {"bookings":24,"paid":5,"failedPay":0,"refunds":0,"expiries":6,"duplicates":4,"dlq":8}
+
+      at Object.<anonymous> (tests/chaos/chaos.db.test.ts:479:15)
+
+PASS unit tests/chaos/chaos.db.test.ts (13.565 s)
+  the invariant checker is not vacuous: it catches real corruption
+    ✓ flags a double sale, a lost ticket, a phantom refund and missing money in an otherwise healthy run (1241 ms)
+  CHAOS: crashes, duplicates, outages, late and reordered webhooks, expiry races
+    ✓ seed 1: ends fully consistent (1538 ms)
+    ✓ seed 2: ends fully consistent (697 ms)
+    ✓ seed 3: ends fully consistent (522 ms)
+    ✓ seed 4: ends fully consistent (348 ms)
+    ✓ seed 5: ends fully consistent (508 ms)
+    ✓ seed 6: ends fully consistent (401 ms)
+    ✓ seed 7: ends fully consistent (437 ms)
+    ✓ seed 8: ends fully consistent (419 ms)
+
+
+=============================== Coverage summary ===============================
+Statements   : 90.19% ( 2392/2652 )
+Branches     : 77.8% ( 666/856 )
+Functions    : 85.63% ( 477/557 )
+Lines        : 91.98% ( 2078/2259 )
+================================================================================
+----------------------------------------|---------|----------|---------|---------|---------------------------------------------------------
+File                                    | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s                                       
+----------------------------------------|---------|----------|---------|---------|---------------------------------------------------------
+All files                               |   90.19 |     77.8 |   85.63 |   91.98 |                                                         
+ libs/db/src                            |   96.29 |       50 |      80 |      96 |                                                         
+  index.ts                              |   96.29 |       50 |      80 |      96 | 7                                                       
+ libs/events/src                        |   95.37 |    86.66 |     100 |   98.93 |                                                         
+  activity.ts                           |     100 |    96.55 |     100 |     100 | 93                                                      
+  booking-code.ts                       |     100 |      100 |     100 |     100 |                                                         
+  catalog.ts                            |     100 |      100 |     100 |     100 |                                                         
+  envelope.ts                           |    87.8 |    68.75 |     100 |   97.14 | 52                                                      
+  index.ts                              |     100 |      100 |     100 |     100 |                                                         
+ libs/events/src/gen/gatepass/events/v1 |     100 |      100 |     100 |     100 |                                                         
+  events_pb.ts                          |     100 |      100 |     100 |     100 |                                                         
+ libs/messaging/src                     |   76.27 |    60.46 |   54.76 |   76.47 |                                                         
+  handler.ts                            |     100 |    72.72 |     100 |     100 | 50-64,97                                                
+  index.ts                              |     100 |      100 |     100 |     100 |                                                         
+  kafka.ts                              |   16.32 |        0 |       0 |   17.39 | 11,19-63,85-86,105-150                                  
+  lag.ts                                |   74.28 |    72.72 |      70 |   80.64 | 81-89                                                   
+  replay.ts                             |   98.33 |    93.93 |     100 |     100 | 94-99                                                   
+  retry.ts                              |     100 |     62.5 |     100 |     100 | 35-45                                                   
+ libs/outbox/src                        |   96.26 |       84 |     100 |   98.05 |                                                         
+  db.ts                                 |     100 |      100 |     100 |     100 |                                                         
+  inbox.ts                              |     100 |      100 |     100 |     100 |                                                         
+  index.ts                              |     100 |      100 |     100 |     100 |                                                         
+  migrate.ts                            |     100 |      100 |     100 |     100 |                                                         
+  outbox.ts                             |     100 |      100 |     100 |     100 |                                                         
+  relay.ts                              |   94.28 |    81.81 |     100 |   96.96 | 185-186                                                 
+ libs/telemetry/src                     |   83.66 |    58.69 |   77.35 |   89.47 |                                                         
+  http.ts                               |      75 |    42.85 |   55.55 |   82.14 | 56-57,71-73                                             
+  index.ts                              |     100 |      100 |     100 |     100 |                                                         
+  metrics.ts                            |   83.67 |    58.33 |   89.28 |    90.9 | 9-11,67                                                 
+  server.ts                             |   33.33 |        0 |       0 |   42.85 | 6-9                                                     
+  tracing.ts                            |   94.91 |    77.77 |   78.57 |      98 | 139                                                     
+ libs/testing/src                       |   97.56 |      100 |    91.3 |     100 |                                                         
+  index.ts                              |     100 |      100 |     100 |     100 |                                                         
+  memory-broker.ts                      |     100 |      100 |     100 |     100 |                                                         
+  postgres.ts                           |   95.91 |      100 |   88.23 |     100 |                                                         
+  redis.ts                              |     100 |      100 |     100 |     100 |                                                         
+ services/analytics/src                 |     100 |      100 |     100 |     100 |                                                         
+  handlers.ts                           |     100 |      100 |     100 |     100 |                                                         
+  index.ts                              |     100 |      100 |     100 |     100 |                                                         
+  queries.ts                            |     100 |      100 |     100 |     100 |                                                         
+ services/analytics/src/http            |   91.89 |    66.66 |      90 |      92 |                                                         
+  analytics.controller.ts               |   90.32 |    66.66 |   88.88 |   90.47 | 22,33                                                   
+  analytics.module.ts                   |     100 |      100 |     100 |     100 |                                                         
+ services/booking/src                   |    94.5 |    82.35 |     100 |     100 |                                                         
+  bookings.ts                           |   96.22 |    93.54 |     100 |     100 | 42,147                                                  
+  handlers.ts                           |    92.3 |    73.33 |     100 |     100 | 48-66,94-132,144                                        
+  index.ts                              |     100 |      100 |     100 |     100 |                                                         
+  refunds.ts                            |   93.75 |    66.66 |     100 |     100 | 22-46                                                   
+  state-machine.ts                      |     100 |      100 |     100 |     100 |                                                         
+ services/booking/src/http              |   89.47 |      100 |   83.33 |    86.2 |                                                         
+  booking.controller.ts                 |    87.5 |      100 |      80 |      84 | 33,46,56,70                                             
+  booking.module.ts                     |     100 |      100 |     100 |     100 |                                                         
+ services/catalog/src                   |   95.29 |    73.68 |     100 |   98.68 |                                                         
+  demo-events.ts                        |     100 |      100 |     100 |     100 |                                                         
+  events.ts                             |   96.15 |       80 |     100 |   97.87 | 118                                                     
+  index.ts                              |     100 |      100 |     100 |     100 |                                                         
+  seat-map.ts                           |   90.47 |       50 |     100 |     100 | 26,49                                                   
+ services/catalog/src/http              |    91.3 |      100 |      80 |   88.88 |                                                         
+  catalog.controller.ts                 |   88.23 |      100 |      75 |   85.71 | 14,28                                                   
+  catalog.module.ts                     |     100 |      100 |     100 |     100 |                                                         
+ services/gateway/src                   |     100 |      100 |   66.66 |     100 |                                                         
+  gateway.module.ts                     |     100 |      100 |     100 |     100 |                                                         
+  index.ts                              |     100 |      100 |      50 |     100 |                                                         
+ services/gateway/src/auth              |   91.66 |    88.37 |     100 |   93.67 |                                                         
+  auth.guard.ts                         |   93.33 |    66.66 |     100 |   95.45 | 45                                                      
+  jwt.ts                                |    90.9 |    91.89 |     100 |   92.98 | 57,110,122,131                                          
+ services/gateway/src/clients           |    23.4 |        0 |    4.34 |    23.4 |                                                         
+  clients.ts                            |    23.4 |        0 |    4.34 |    23.4 | 153-175,179-184,189-194,202-213,222-230,238-271,276-290 
+ services/gateway/src/http              |   97.82 |      100 |   94.54 |   97.32 |                                                         
+  bookings.controller.ts                |   96.36 |      100 |   92.85 |   95.91 | 45,154                                                  
+  dev-login.controller.ts               |     100 |      100 |     100 |     100 |                                                         
+  downstream.ts                         |      95 |      100 |     100 |   92.85 | 25                                                      
+  events.controller.ts                  |   97.56 |      100 |    92.3 |   96.87 | 66                                                      
+  organizer.controller.ts               |   97.43 |      100 |   91.66 |   96.87 | 83                                                      
+  tickets.controller.ts                 |     100 |      100 |     100 |     100 |                                                         
+  waiting-room.controller.ts            |     100 |      100 |     100 |     100 |                                                         
+ services/gateway/src/seat-stream       |   81.42 |     87.5 |      84 |   81.48 |                                                         
+  seat-stream.ts                        |   81.42 |     87.5 |      84 |   81.48 | 70-74,184-199                                           
+ services/gateway/src/waiting-room      |   89.13 |    78.78 |    82.6 |   91.35 |                                                         
+  admission.ts                          |   96.96 |      100 |     100 |   96.42 | 51                                                      
+  waiting-room.ts                       |   84.74 |    66.66 |   78.94 |   88.67 | 175-185                                                 
+ services/notification/src              |   97.72 |    74.07 |     100 |     100 |                                                         
+  handlers.ts                           |   97.67 |    74.07 |     100 |     100 | 42,75,91-104,126-133                                    
+  index.ts                              |     100 |      100 |     100 |     100 |                                                         
+ services/payment/src                   |   95.49 |    81.63 |     100 |   98.39 |                                                         
+  handlers.ts                           |   92.59 |    66.66 |     100 |     100 | 17-30                                                   
+  index.ts                              |     100 |      100 |     100 |     100 |                                                         
+  payments.ts                           |   95.72 |    86.66 |     100 |   97.05 | 169,220-224                                             
+  refunds.ts                            |   95.31 |       75 |     100 |     100 | 74,112,141,153-155,163-186                              
+  state.ts                              |     100 |      100 |     100 |     100 |                                                         
+ services/payment/src/http              |   90.69 |       80 |      80 |   91.17 |                                                         
+  payment.controller.ts                 |   89.18 |       80 |      75 |      90 | 43,67,88                                                
+  payment.module.ts                     |     100 |      100 |     100 |     100 |                                                         
+ services/payment/src/providers         |   90.47 |    88.42 |    87.5 |   93.75 |                                                         
+  fake-provider.ts                      |   89.83 |    92.85 |      80 |    92.3 | 82-84,163                                               
+  provider.ts                           |     100 |      100 |     100 |     100 |                                                         
+  razorpay-provider.ts                  |   89.09 |    84.31 |     100 |   93.87 | 120,146,153                                             
+ services/seat-inventory/src            |   85.63 |    73.77 |   87.17 |   89.65 |                                                         
+  expiry.ts                             |   58.69 |    46.66 |    37.5 |    62.5 | 95-124                                                  
+  handlers.ts                           |   94.68 |    83.78 |     100 |     100 | 26-41,53,130,191,228                                    
+  hold.ts                               |     100 |      100 |     100 |     100 |                                                         
+  index.ts                              |     100 |      100 |     100 |     100 |                                                         
+  queries.ts                            |    90.9 |    33.33 |     100 |     100 | 41-52                                                   
+ services/ticket/src                    |      96 |    82.92 |     100 |   97.74 |                                                         
+  handlers.ts                           |   94.23 |    63.63 |     100 |     100 | 13-55,124                                               
+  index.ts                              |     100 |      100 |     100 |     100 |                                                         
+  qr-token.ts                           |   97.43 |    88.88 |     100 |   97.14 | 66                                                      
+  tickets.ts                            |   96.42 |    91.66 |     100 |   96.07 | 114,192                                                 
+ services/ticket/src/http               |   95.23 |      100 |   85.71 |   93.93 |                                                         
+  ticket.controller.ts                  |   94.44 |      100 |   83.33 |    93.1 | 38,64                                                   
+  ticket.module.ts                      |     100 |      100 |     100 |     100 |                                                         
+ tests/chaos/src                        |   86.61 |    57.14 |     100 |   86.66 |                                                         
+  invariants.ts                         |   84.95 |    57.14 |     100 |    85.1 | 71,81,83,95,104,106,112,133,138,141,167,169,177,179     
+  rng.ts                                |     100 |      100 |     100 |     100 |                                                         
+----------------------------------------|---------|----------|---------|---------|---------------------------------------------------------
+Test Suites: 29 passed, 29 total
+Tests:       381 passed, 381 total
+Snapshots:   0 total
+Time:        14.108 s
+Ran all test suites.
+exit 0
