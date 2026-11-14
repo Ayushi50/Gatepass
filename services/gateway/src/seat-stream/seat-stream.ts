@@ -68,24 +68,103 @@ export class SeatStreamHub {
   complete(): void {
     this.updates.complete();
   }
+}
 
-  /**
-   * Starts the Kafka bridge. Every gateway instance uses its own consumer group, so every
-   * instance sees every event and can serve its own browsers. Only new events matter here
-   * (initial state comes from the REST call), so it starts at the end of the topics.
-   */
-  startKafkaBridge(kafka: Kafka, dlq: DeadLetterPublisher): KafkaEventConsumer {
-    const consumer = new KafkaEventConsumer({
-      kafka,
-      groupId: `gateway-seat-stream-${uuidv4()}`,
-      topics: SEAT_TOPICS,
-      fromBeginning: false,
-      dlq,
-      handle: async (env) => {
-        for (const u of toSeatUpdates(env)) this.publish(u);
-      },
-    });
-    void consumer.start();
-    return consumer;
+/** One step of a booking, as the status page needs it. */
+export interface BookingUpdate {
+  bookingId: string;
+  type:
+    | 'seats.held'
+    | 'seats.sold'
+    | 'seats.released'
+    | 'payment.succeeded'
+    | 'payment.failed'
+    | 'booking.confirmed'
+    | 'booking.cancelled';
+  reason?: string;
+  at: string; // ISO, server time of the event
+}
+
+export const BOOKING_TOPICS = [
+  'seats.held',
+  'seats.sold',
+  'seats.released',
+  'payment.succeeded',
+  'payment.failed',
+  'booking.confirmed',
+  'booking.cancelled',
+];
+
+/** Pure mapping from a broker event to a booking status update; null if it is not one. */
+export function toBookingUpdate(env: EventEnvelope): BookingUpdate | null {
+  const at = new Date(Number(env.occurredAtMs)).toISOString();
+  const p = env.payload;
+  switch (p.case) {
+    case 'seatsHeld':
+      return { bookingId: p.value.bookingId, type: 'seats.held', at };
+    case 'seatsSold':
+      return { bookingId: p.value.bookingId, type: 'seats.sold', at };
+    case 'seatsReleased':
+      return { bookingId: p.value.bookingId, type: 'seats.released', reason: p.value.reason, at };
+    case 'paymentSucceeded':
+      return { bookingId: p.value.bookingId, type: 'payment.succeeded', at };
+    case 'paymentFailed':
+      return { bookingId: p.value.bookingId, type: 'payment.failed', reason: p.value.reason, at };
+    case 'bookingConfirmed':
+      return { bookingId: p.value.bookingId, type: 'booking.confirmed', at };
+    case 'bookingCancelled':
+      return {
+        bookingId: p.value.bookingId,
+        type: 'booking.cancelled',
+        reason: p.value.reason,
+        at,
+      };
+    default:
+      return null;
   }
+}
+
+/** In-process fan-out of booking progress to the browsers watching a booking. */
+@Injectable()
+export class BookingStreamHub {
+  private readonly updates = new Subject<BookingUpdate>();
+
+  publish(update: BookingUpdate): void {
+    this.updates.next(update);
+  }
+
+  stream(bookingId: string): Observable<BookingUpdate> {
+    return this.updates.pipe(filter((u) => u.bookingId === bookingId));
+  }
+
+  get observers(): number {
+    return this.updates.observers.length;
+  }
+}
+
+/**
+ * The Kafka -> SSE bridge. ONE consumer feeds both hubs. Every gateway instance uses its own
+ * consumer group, so every instance sees every event and can serve its own browsers. Only new
+ * events matter (initial state comes from REST), so it starts at the end of the topics.
+ */
+export function startStreamBridge(
+  kafka: Kafka,
+  dlq: DeadLetterPublisher,
+  seats: SeatStreamHub,
+  bookings: BookingStreamHub,
+): KafkaEventConsumer {
+  const consumer = new KafkaEventConsumer({
+    kafka,
+    groupId: `gateway-streams-${uuidv4()}`,
+    topics: [...new Set([...SEAT_TOPICS, ...BOOKING_TOPICS])],
+    fromBeginning: false,
+    dlq,
+    handle: async (env) => {
+      for (const u of toSeatUpdates(env)) seats.publish(u);
+      const b = toBookingUpdate(env);
+      if (b) bookings.publish(b);
+    },
+  });
+  void consumer.start();
+  return consumer;
 }

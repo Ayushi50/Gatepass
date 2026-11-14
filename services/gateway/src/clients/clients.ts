@@ -46,7 +46,14 @@ export interface BookingView {
   state: string;
   holdExpiresAt: string | null;
   cancelReason: string | null;
+  amountMinor?: number | null;
+  currency?: string | null;
   serverTime: string;
+}
+
+export interface PaymentView {
+  paymentId: string;
+  status: 'created' | 'processing' | 'succeeded' | 'failed';
 }
 
 export interface CatalogClient {
@@ -55,6 +62,15 @@ export interface CatalogClient {
 export interface InventoryClient {
   getSeats(eventId: string): Promise<SeatView[]>;
   getAvailability(eventIds: string[]): Promise<Availability[]>;
+}
+export interface PaymentClient {
+  pay(input: {
+    bookingId: string;
+    userId: string;
+    method: string;
+    token: string;
+    idempotencyKey: string;
+  }): Promise<PaymentView>;
 }
 export interface BookingClient {
   create(input: { eventId: string; userId: string; seatIds: string[] }): Promise<BookingView>;
@@ -115,5 +131,21 @@ export class HttpBookingClient implements BookingClient {
   }
   get(id: string) {
     return call<BookingView>(this.baseUrl, `/bookings/${encodeURIComponent(id)}`);
+  }
+}
+
+export class HttpPaymentClient implements PaymentClient {
+  constructor(private readonly baseUrl: string) {}
+  pay(input: {
+    bookingId: string;
+    userId: string;
+    method: string;
+    token: string;
+    idempotencyKey: string;
+  }) {
+    return call<PaymentView>(this.baseUrl, '/payments', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
   }
 }

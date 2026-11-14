@@ -1,16 +1,23 @@
 import { Module, type DynamicModule } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AuthGuard, JWT_SECRET } from './auth/auth.guard';
-import type { BookingClient, CatalogClient, InventoryClient } from './clients/clients';
-import { BOOKINGS, BookingsController } from './http/bookings.controller';
+import type {
+  BookingClient,
+  CatalogClient,
+  InventoryClient,
+  PaymentClient,
+} from './clients/clients';
+import { BOOKINGS, BookingsController, PAYMENTS } from './http/bookings.controller';
 import { CATALOG, EventsController, HEARTBEAT_MS, INVENTORY } from './http/events.controller';
-import { SeatStreamHub } from './seat-stream/seat-stream';
+import { BookingStreamHub, SeatStreamHub } from './seat-stream/seat-stream';
 
 export interface GatewayOptions {
   catalog: CatalogClient;
   inventory: InventoryClient;
   bookings: BookingClient;
+  payments: PaymentClient;
   hub: SeatStreamHub;
+  bookingHub: BookingStreamHub;
   jwtSecret: string;
   heartbeatMs?: number;
 }
@@ -28,7 +35,9 @@ export class GatewayModule {
         { provide: CATALOG, useValue: o.catalog },
         { provide: INVENTORY, useValue: o.inventory },
         { provide: BOOKINGS, useValue: o.bookings },
+        { provide: PAYMENTS, useValue: o.payments },
         { provide: SeatStreamHub, useValue: o.hub },
+        { provide: BookingStreamHub, useValue: o.bookingHub },
         { provide: HEARTBEAT_MS, useValue: o.heartbeatMs ?? 25_000 },
       ],
     };

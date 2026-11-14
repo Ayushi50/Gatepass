@@ -1,9 +1,11 @@
 import {
   BadGatewayException,
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   NotFoundException,
   ServiceUnavailableException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { DownstreamError } from '../clients/clients';
 
@@ -16,6 +18,8 @@ export async function relay<T>(fn: () => Promise<T>): Promise<T> {
     if (err.status === 400) throw new BadRequestException(err.message);
     if (err.status === 403) throw new ForbiddenException(err.message);
     if (err.status === 404) throw new NotFoundException(err.message);
+    if (err.status === 409) throw new ConflictException(err.message);
+    if (err.status === 422) throw new UnprocessableEntityException(err.message);
     if (err.status === 503)
       throw new ServiceUnavailableException('a backend service is unavailable');
     throw new BadGatewayException('unexpected response from a backend service');

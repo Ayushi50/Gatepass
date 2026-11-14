@@ -4,6 +4,7 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import {
+  BookingStreamHub,
   DownstreamError,
   GatewayModule,
   SeatStreamHub,
@@ -12,6 +13,7 @@ import {
   type BookingView,
   type CatalogClient,
   type InventoryClient,
+  type PaymentClient,
 } from '../src';
 
 const SECRET = 'a-test-secret-that-is-long-enough-123';
@@ -43,7 +45,9 @@ const ev = (id: string, title: string, minPriceMinor: number) => ({
 
 let app: INestApplication;
 let hub: SeatStreamHub;
+let bookingHub: BookingStreamHub;
 const createCalls: unknown[] = [];
+const payCalls: unknown[] = [];
 
 const catalog: CatalogClient = {
   listEvents: async () => [
@@ -78,15 +82,31 @@ const bookings: BookingClient = {
   },
 };
 
+const payments: PaymentClient = {
+  pay: async (input) => {
+    payCalls.push(input);
+    if (input.method === 'cash')
+      throw new DownstreamError(400, 'method must be one of upi, card, netbanking');
+    if (input.idempotencyKey === 'conflict-key-0001')
+      throw new DownstreamError(409, 'this booking already has a payment');
+    if (input.idempotencyKey === 'reused-key-00001')
+      throw new DownstreamError(422, 'Idempotency-Key was already used for a different request');
+    return { paymentId: 'pay-1', status: 'processing' };
+  },
+};
+
 beforeAll(async () => {
   hub = new SeatStreamHub();
+  bookingHub = new BookingStreamHub();
   const mod = await Test.createTestingModule({
     imports: [
       GatewayModule.forRoot({
         catalog,
         inventory,
         bookings,
+        payments,
         hub,
+        bookingHub,
         jwtSecret: SECRET,
         heartbeatMs: 60_000,
       }),
@@ -94,6 +114,7 @@ beforeAll(async () => {
   }).compile();
   app = mod.createNestApplication();
   await app.init();
+  await app.listen(0); // real socket, needed by the SSE tests
 });
 afterAll(async () => {
   await app.close();
@@ -207,9 +228,127 @@ describe('GET /api/bookings/:id', () => {
   });
 });
 
+describe('POST /api/bookings/:id/pay', () => {
+  const post = (
+    id = 'bk-1',
+    key: string | null = 'idem-key-000001',
+    body: object = { method: 'upi', token: 'tok_success' },
+    auth = token('attendee', 'alice'),
+  ) => {
+    const r = request(app.getHttpServer())
+      .post(`/api/bookings/${id}/pay`)
+      .set('Authorization', auth);
+    if (key) r.set('Idempotency-Key', key);
+    return r.send(body);
+  };
+
+  it('requires a token and the attendee role', async () => {
+    await request(app.getHttpServer())
+      .post('/api/bookings/bk-1/pay')
+      .set('Idempotency-Key', 'idem-key-000001')
+      .send({})
+      .expect(401);
+    await post('bk-1', 'idem-key-000001', {}, token('door-staff')).expect(403);
+  });
+
+  it('requires an Idempotency-Key header', async () => {
+    await post('bk-1', null).expect(400);
+  });
+
+  it('only the owner can pay (403), unknown bookings are 404', async () => {
+    await post('theirs').expect(403);
+    await post('unknown').expect(404);
+  });
+
+  it('forwards the verified user, key, method and token and answers 202', async () => {
+    const res = await post('bk-1', 'idem-key-000002', {
+      method: 'upi',
+      token: 'tok_success',
+      userId: 'mallory',
+    }).expect(202);
+    expect(res.body).toEqual({ paymentId: 'pay-1', status: 'processing' });
+    expect(payCalls.at(-1)).toEqual({
+      bookingId: 'bk-1',
+      userId: 'alice', // from the token, not the body
+      method: 'upi',
+      token: 'tok_success',
+      idempotencyKey: 'idem-key-000002',
+    });
+  });
+
+  it('maps payment errors: 400 bad input, 409 already paying, 422 key reuse', async () => {
+    await post('bk-1', 'idem-key-000003', { method: 'cash', token: 't' }).expect(400);
+    await post('bk-1', 'conflict-key-0001').expect(409);
+    await post('bk-1', 'reused-key-00001').expect(422);
+  });
+});
+
+describe('SSE /api/bookings/:id/stream', () => {
+  const open = async (id: string, auth?: string) => {
+    const port = (app.getHttpServer().address() as AddressInfo).port;
+    const controller = new AbortController();
+    const res = await fetch(`http://127.0.0.1:${port}/api/bookings/${id}/stream`, {
+      signal: controller.signal,
+      headers: { accept: 'text/event-stream', ...(auth ? { authorization: auth } : {}) },
+    });
+    return { res, controller };
+  };
+
+  it("needs a token and refuses other people's bookings", async () => {
+    expect((await open('bk-1')).res.status).toBe(401);
+    expect((await open('theirs', token('attendee', 'alice'))).res.status).toBe(403);
+    expect((await open('unknown', token('attendee', 'alice'))).res.status).toBe(404);
+    expect(bookingHub.observers).toBe(0); // failed opens do not leak subscriptions
+  });
+
+  it('sends a snapshot first, then each step live, only for that booking', async () => {
+    const { res, controller } = await open('bk-1', token('attendee', 'alice'));
+    expect(res.status).toBe(200);
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let received = '';
+    const readUntil = async (needle: string) => {
+      const deadline = Date.now() + 5000;
+      while (!received.includes(needle)) {
+        if (Date.now() > deadline)
+          throw new Error(`timeout waiting for ${needle}; got ${received}`);
+        const { value } = await reader.read();
+        received += decoder.decode(value);
+      }
+    };
+
+    await readUntil('"kind":"snapshot"');
+    expect(received).toContain('"state":"HELD"');
+    expect(received).toContain('"holdExpiresAt":"2026-12-06T10:10:00.000Z"');
+    expect(received).toContain('"serverTime":"2026-12-06T10:00:00.000Z"');
+
+    bookingHub.publish({ bookingId: 'someone-else', type: 'payment.succeeded', at: 'x' });
+    bookingHub.publish({
+      bookingId: 'bk-1',
+      type: 'payment.succeeded',
+      at: '2026-12-06T10:01:00.000Z',
+    });
+    bookingHub.publish({
+      bookingId: 'bk-1',
+      type: 'payment.failed',
+      reason: 'declined',
+      at: '2026-12-06T10:02:00.000Z',
+    });
+    await readUntil('"type":"payment.failed"');
+    expect(received).toContain('"kind":"event","type":"payment.succeeded"');
+    expect(received).toContain('"reason":"declined"');
+    expect(received).not.toContain('someone-else');
+
+    controller.abort();
+    const deadline = Date.now() + 3000;
+    while (bookingHub.observers > 0 && Date.now() < deadline)
+      await new Promise((r) => setTimeout(r, 20));
+    expect(bookingHub.observers).toBe(0); // closing the page releases the subscription
+  });
+});
+
 describe('SSE /api/events/:id/seats/stream', () => {
   it("pushes only that event's seat changes to the browser as they happen", async () => {
-    await app.listen(0);
     const port = (app.getHttpServer().address() as AddressInfo).port;
     const controller = new AbortController();
     const res = await fetch(`http://127.0.0.1:${port}/api/events/neon-nights/seats/stream`, {
