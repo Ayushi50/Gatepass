@@ -2,7 +2,7 @@
 
 Ticket booking for live events, built as an event-driven microservices system: Kafka (Redpanda), Postgres per service, Redis, NestJS services, and a Next.js frontend built from the designs in [`design/`](design/).
 
-> **Status: Phase 2 (payment).** Events and seat maps can be published, seats are held all-or-none under concurrency, and a held booking can be paid (test mode) and confirmed, or cancelled with its seats released when payment fails. Tickets, refunds, hold expiry and the frontend arrive in later phases. See `BUILD_PROMPT.md` for the phase plan.
+> **Status: Phase 3 (tickets, notifications, analytics).** The full happy path works end to end: events are published, seats held all-or-none under concurrency, a booking is paid (test mode), confirmed, ticketed with signed QR codes, notified, shown on the organizer dashboard and checked in at the door (one admission per ticket, even from two gates at once). Refunds, hold expiry, the waiting room and the frontend arrive in later phases. See `BUILD_PROMPT.md` for the phase plan.
 
 ## Architecture
 
@@ -18,7 +18,7 @@ Ticket booking for live events, built as an event-driven microservices system: K
                                                   <group>.dlq
 ```
 
-Built so far: **catalog**, **seat-inventory**, **booking** (saga orchestrator), **payment** and **gateway**. Still to come: ticket, notification, analytics. The browser never talks to Kafka; the gateway bridges events to SSE.
+Built so far: **catalog**, **seat-inventory**, **booking** (saga orchestrator), **payment**, **ticket**, **notification**, **analytics** and **gateway**. The browser never talks to Kafka; the gateway bridges events to SSE.
 
 ### Booking and payment flow
 
@@ -32,6 +32,10 @@ POST /api/bookings/:id/pay (Idempotency-Key) ─▶ payment: payment row, then p
    provider webhook (signed, de-duplicated) ─▶ payment.succeeded | payment.failed
    payment.succeeded ─▶ seat-inventory: held→sold, seats.sold ─▶ booking: PAID → CONFIRMED + booking.confirmed
    payment.failed    ─▶ seat-inventory: held→available, seats.released ─▶ booking CANCELLED + booking.cancelled
+
+booking.confirmed ─▶ ticket: one signed ticket per seat + ticket.issued ─▶ notification (email + SMS log)
+every event ─▶ analytics (seat counts, tier bars, activity feed) ─▶ organizer dashboard
+POST /api/checkin ─▶ ticket: verify signature, then one atomic UPDATE valid→used
 ```
 
 ### Gateway API
@@ -46,17 +50,17 @@ POST /api/bookings/:id/pay (Idempotency-Key) ─▶ payment: payment row, then p
 
 ## Repo layout
 
-| Path             | Purpose                                                                  |
-| ---------------- | ------------------------------------------------------------------------ |
-| `libs/events`    | Protobuf event catalog, generated types, envelope builder and validation |
-| `libs/outbox`    | Outbox writer, relay, inbox guard, SQL migration                         |
-| `libs/messaging` | KafkaJS publisher and consumer, retry with backoff, DLQ                  |
-| `libs/db`        | Pool factory, SQL migration runner, env helper                           |
-| `libs/testing`   | In-process Postgres and in-memory broker for tests                       |
-| `services/*`     | catalog, seat-inventory, booking, payment, gateway (NestJS)              |
-| `tests/saga`     | Cross-service saga tests                                                 |
-| `design/`        | Read-only UI source of truth                                             |
-| `docs/adr/`      | Architecture decision records                                            |
+| Path             | Purpose                                                                                      |
+| ---------------- | -------------------------------------------------------------------------------------------- |
+| `libs/events`    | Protobuf event catalog, generated types, envelope builder and validation                     |
+| `libs/outbox`    | Outbox writer, relay, inbox guard, SQL migration                                             |
+| `libs/messaging` | KafkaJS publisher and consumer, retry with backoff, DLQ                                      |
+| `libs/db`        | Pool factory, SQL migration runner, env helper                                               |
+| `libs/testing`   | In-process Postgres and in-memory broker for tests                                           |
+| `services/*`     | catalog, seat-inventory, booking, payment, ticket, notification, analytics, gateway (NestJS) |
+| `tests/saga`     | Cross-service saga tests                                                                     |
+| `design/`        | Read-only UI source of truth                                                                 |
+| `docs/adr/`      | Architecture decision records                                                                |
 
 ## Test it
 
@@ -81,6 +85,8 @@ Mint a development token for the gateway (`JWT_SECRET` must match):
 
 ```bash
 JWT_SECRET=... pnpm --filter @gatepass/gateway dev-token attendee user-1
+JWT_SECRET=... pnpm --filter @gatepass/gateway dev-token organizer org-demo   # owns the demo events
+JWT_SECRET=... pnpm --filter @gatepass/gateway dev-token door-staff staff-1
 ```
 
 ## Payments (test mode only)
