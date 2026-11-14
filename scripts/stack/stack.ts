@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { createWriteStream, existsSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createEvent, DEMO_EVENTS } from '@gatepass/catalog';
 import { signToken } from '@gatepass/gateway';
@@ -13,6 +14,7 @@ import {
   waitForPort,
   type ManagedProcess,
 } from './infra';
+import { ensureTool } from './tools';
 
 const ROOT = join(__dirname, '..', '..');
 const WEB = join(ROOT, 'apps', 'web');
@@ -24,8 +26,13 @@ export const PORTS = {
   booking: 3003,
   payment: 3004,
   ticket: 3005,
+  notification: 3006,
   analytics: 3007,
   web: 3100,
+  prometheus: 9090,
+  grafana: 3200,
+  jaeger: 16686,
+  otlp: 4318,
 };
 export const JWT_SECRET = 'local-stack-jwt-secret-for-development-only-32+';
 
@@ -36,15 +43,19 @@ export interface StackOptions {
   seed?: boolean;
   /** Seat hold length. Default 10 minutes. */
   holdTtlMs?: number;
+  /** Extra time after expiry before an unpaid hold is released. Default 60 seconds. */
+  holdGraceMs?: number;
   /** How soon the FAKE payment provider reports a payment as done, in ms. Default 800. */
   autoWebhookMs?: number;
   /** Waiting-room admissions per second. Default 5. */
   admitPerSecond?: number;
+  /** Also start Jaeger (traces), Prometheus (metrics) and Grafana (dashboard); downloads them on first use. */
+  observability?: boolean;
   log?: (line: string) => void;
 }
 
 export interface Stack {
-  urls: { web: string; gateway: string };
+  urls: { web: string; gateway: string; prometheus?: string; grafana?: string; jaeger?: string };
   databases: Record<string, TestDatabase>;
   processes: ManagedProcess[];
   logDir: string;
@@ -91,9 +102,11 @@ export async function startStack(opts: StackOptions = {}): Promise<Stack> {
   const databases = {} as Record<(typeof SERVICES)[number], TestDatabase>;
   const processes: ManagedProcess[] = [];
   let web: ChildProcess | undefined;
+  const spawned: ChildProcess[] = [];
 
   const stop = async () => {
     web?.kill('SIGTERM');
+    for (const c of spawned) c.kill('SIGTERM');
     for (const p of processes) p.kill();
     await Promise.all(Object.values(databases).map((d) => d.close().catch(() => undefined)));
     await pg.stop().catch(() => undefined);
@@ -106,7 +119,12 @@ export async function startStack(opts: StackOptions = {}): Promise<Stack> {
     await createTopics(kafka.brokers, GROUPS);
     say('infrastructure is up (Kafka, Postgres, Redis)');
 
-    const common = { KAFKA_BROKERS: kafka.brokers.join(',') };
+    const obs: Record<string, string> = {};
+    if (opts.observability) {
+      await startObservability(say, spawned);
+      obs.OTEL_EXPORTER_OTLP_ENDPOINT = `http://127.0.0.1:${PORTS.otlp}`;
+    }
+    const common = { KAFKA_BROKERS: kafka.brokers.join(','), LAG_INTERVAL_MS: '2000', ...obs };
     const svc = (
       name: string,
       dir: string,
@@ -128,7 +146,11 @@ export async function startStack(opts: StackOptions = {}): Promise<Stack> {
       svc(
         'seat-inventory',
         'seat-inventory',
-        { ...url('inventory'), HOLD_TTL_MS: String(opts.holdTtlMs ?? 600_000) },
+        {
+          ...url('inventory'),
+          HOLD_TTL_MS: String(opts.holdTtlMs ?? 600_000),
+          ...(opts.holdGraceMs === undefined ? {} : { HOLD_GRACE_MS: String(opts.holdGraceMs) }),
+        },
         PORTS.inventory,
       ),
       svc('booking', 'booking', url('booking'), PORTS.booking),
@@ -208,8 +230,17 @@ export async function startStack(opts: StackOptions = {}): Promise<Stack> {
     throw err;
   }
 
+  const urls: Stack['urls'] = {
+    web: `http://127.0.0.1:${PORTS.web}`,
+    gateway: `http://127.0.0.1:${PORTS.gateway}`,
+  };
+  if (opts.observability) {
+    urls.prometheus = `http://127.0.0.1:${PORTS.prometheus}`;
+    urls.grafana = `http://127.0.0.1:${PORTS.grafana}`;
+    urls.jaeger = `http://127.0.0.1:${PORTS.jaeger}`;
+  }
   return {
-    urls: { web: `http://127.0.0.1:${PORTS.web}`, gateway: `http://127.0.0.1:${PORTS.gateway}` },
+    urls,
     databases,
     processes,
     logDir,
@@ -275,4 +306,102 @@ async function seed(catalogDb: TestDatabase, say: (m: string) => void): Promise<
     await sleep(500);
   }
   say('Jazz on the Roof is sold out');
+}
+
+const METRIC_TARGETS: [string, number][] = [
+  ['gateway', PORTS.gateway],
+  ['catalog', PORTS.catalog],
+  ['seat-inventory', PORTS.inventory],
+  ['booking', PORTS.booking],
+  ['payment', PORTS.payment],
+  ['ticket', PORTS.ticket],
+  ['notification', PORTS.notification],
+  ['analytics', PORTS.analytics],
+];
+
+function launch(
+  name: string,
+  bin: string,
+  args: string[],
+  env: Record<string, string>,
+  cwd: string,
+  spawned: ChildProcess[],
+): void {
+  const child = spawn(bin, args, { cwd, env: { ...process.env, ...env } });
+  const out = createWriteStream(join(logDir, `${name}.log`));
+  child.stdout?.pipe(out);
+  child.stderr?.pipe(out);
+  spawned.push(child);
+}
+
+/** Jaeger (traces), Prometheus (metrics) and Grafana (dashboard, provisioned from infra/observability). */
+async function startObservability(
+  say: (m: string) => void,
+  spawned: ChildProcess[],
+): Promise<void> {
+  const jaeger = await ensureTool('jaeger', say);
+  const prometheus = await ensureTool('prometheus', say);
+  const grafana = await ensureTool('grafana', say);
+  const work = mkdtempSync(join(tmpdir(), 'gatepass-obs-'));
+
+  launch('jaeger', jaeger, [], {}, work, spawned);
+  await waitForPort(PORTS.otlp, 60_000);
+  await waitForPort(PORTS.jaeger, 60_000);
+
+  const config = join(work, 'prometheus.yml');
+  writeFileSync(
+    config,
+    [
+      'global:',
+      '  scrape_interval: 2s',
+      '  evaluation_interval: 5s',
+      'scrape_configs:',
+      ...METRIC_TARGETS.flatMap(([service, port]) => [
+        `  - job_name: ${service}`,
+        '    static_configs:',
+        `      - targets: ['127.0.0.1:${port}']`,
+        `        labels: { service: '${service}' }`,
+      ]),
+    ].join('\n'),
+  );
+  launch(
+    'prometheus',
+    prometheus,
+    [
+      `--config.file=${config}`,
+      `--storage.tsdb.path=${join(work, 'prom')}`,
+      `--web.listen-address=127.0.0.1:${PORTS.prometheus}`,
+    ],
+    {},
+    work,
+    spawned,
+  );
+  await waitForPort(PORTS.prometheus, 60_000);
+
+  const obsRoot = join(ROOT, 'infra', 'observability', 'grafana');
+  const home = join(grafana, '..', '..');
+  mkdirSync(join(work, 'grafana-data'), { recursive: true });
+  launch(
+    'grafana',
+    grafana,
+    ['server', '--homepath', home],
+    {
+      GF_PATHS_DATA: join(work, 'grafana-data'),
+      GF_PATHS_LOGS: join(work, 'grafana-logs'),
+      GF_PATHS_PROVISIONING: join(obsRoot, 'provisioning'),
+      GATEPASS_PROMETHEUS_URL: `http://127.0.0.1:${PORTS.prometheus}`,
+      GATEPASS_DASHBOARDS_DIR: join(obsRoot, 'dashboards'),
+      GF_SERVER_HTTP_ADDR: '127.0.0.1',
+      GF_SERVER_HTTP_PORT: String(PORTS.grafana),
+      GF_AUTH_ANONYMOUS_ENABLED: 'true',
+      GF_AUTH_ANONYMOUS_ORG_ROLE: 'Viewer',
+      GF_ANALYTICS_REPORTING_ENABLED: 'false',
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false',
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: join(obsRoot, 'dashboards', 'gatepass.json'),
+    },
+    home,
+    spawned,
+  );
+  await waitForPort(PORTS.grafana, 120_000);
+  say('observability is up (Jaeger, Prometheus, Grafana)');
 }

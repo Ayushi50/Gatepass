@@ -18,7 +18,8 @@
     "chaos:real": "ts-node --transpile-only tests/chaos/real/run.ts",
     "stack": "ts-node --transpile-only scripts/stack/up.ts",
     "e2e": "pnpm --filter @gatepass/web e2e",
-    "tools": "ts-node --transpile-only scripts/stack/tools-cli.ts"
+    "tools": "ts-node --transpile-only scripts/stack/tools-cli.ts",
+    "observability:check": "ts-node --transpile-only scripts/stack/observability-check.ts"
   },
   "devDependencies": {
     "@bufbuild/buf": "^1.75.0",

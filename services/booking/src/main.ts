@@ -6,11 +6,23 @@ import { KafkaEventConsumer, KafkaEventPublisher, createKafka } from '@gatepass/
 import { OutboxRelay } from '@gatepass/outbox';
 import { CONSUMED_TOPICS, CONSUMER_GROUP, bookingHandler } from './handlers';
 import { BookingModule } from './http/booking.module';
-import { collectProcessMetrics, initTelemetry, mountTelemetry } from '@gatepass/telemetry';
+import {
+  collectProcessMetrics,
+  initTelemetry,
+  metrics,
+  mountTelemetry,
+  startAtZero,
+} from '@gatepass/telemetry';
 
 async function main(): Promise<void> {
   initTelemetry('booking'); // tracing is off unless OTEL_EXPORTER_OTLP_ENDPOINT is set
   collectProcessMetrics();
+  startAtZero(metrics.bookingsRequested());
+  startAtZero(metrics.bookingsConfirmed());
+  startAtZero(
+    metrics.bookingsCancelled(),
+    ['hold_failed', 'hold_expired', 'payment_failed'].map((reason) => ({ reason })),
+  );
   const pool = createPool(requireEnv('DATABASE_URL'));
   await migrate(pool, join(__dirname, '..', 'migrations'));
 

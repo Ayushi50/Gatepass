@@ -7,11 +7,24 @@ import { OutboxRelay } from '@gatepass/outbox';
 import { HoldSweeper } from './expiry';
 import { CONSUMED_TOPICS, CONSUMER_GROUP, seatInventoryHandler } from './handlers';
 import { InventoryModule } from './http/inventory.module';
-import { collectProcessMetrics, initTelemetry, mountTelemetry } from '@gatepass/telemetry';
+import {
+  collectProcessMetrics,
+  initTelemetry,
+  metrics,
+  mountTelemetry,
+  startAtZero,
+} from '@gatepass/telemetry';
 
 async function main(): Promise<void> {
   initTelemetry('seat-inventory'); // tracing is off unless OTEL_EXPORTER_OTLP_ENDPOINT is set
   collectProcessMetrics();
+  startAtZero(metrics.holdsCreated());
+  startAtZero(metrics.holdsExpired());
+  startAtZero(metrics.salesFailed());
+  startAtZero(
+    metrics.holdsFailed(),
+    ['seat_unavailable', 'unknown_seat', 'invalid_request'].map((reason) => ({ reason })),
+  );
   const pool = createPool(requireEnv('DATABASE_URL'), 20);
   await migrate(pool, join(__dirname, '..', 'migrations'));
 

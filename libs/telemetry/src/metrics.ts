@@ -58,6 +58,15 @@ export function histogram(
   );
 }
 
+/**
+ * Makes a counter report 0 from start-up instead of appearing with its first event.
+ * Prometheus cannot see the first increase of a series that did not exist a moment ago, so
+ * without this the first cancellation or expiry after a restart would be missing from every rate.
+ */
+export function startAtZero(c: Counter<string>, labelSets: Record<string, string>[] = [{}]): void {
+  for (const labels of labelSets) c.inc(labels, 0);
+}
+
 /** Latency buckets from 5 ms to 60 s: enough resolution to read a p95 from. */
 export const LATENCY_BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60];
 

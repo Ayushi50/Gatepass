@@ -1,0 +1,345 @@
+{
+  "uid": "gatepass-overview",
+  "title": "Gatepass: bookings",
+  "tags": ["gatepass"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Bookings per minute",
+      "description": "How many bookings are being requested and how many reach CONFIRMED, per minute.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gatepass-prom"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gatepass-prom"
+          },
+          "expr": "sum(rate(gatepass_bookings_requested_total[1m])) * 60",
+          "legendFormat": "requested",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gatepass-prom"
+          },
+          "expr": "sum(rate(gatepass_bookings_confirmed_total[1m])) * 60",
+          "legendFormat": "confirmed",
+          "refId": "B",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Saga success rate",
+      "description": "Confirmed bookings as a share of bookings that finished (confirmed + cancelled), over 5 minutes.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gatepass-prom"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gatepass-prom"
+          },
+          "expr": "sum(increase(gatepass_bookings_confirmed_total[5m])) / (sum(increase(gatepass_bookings_confirmed_total[5m])) + sum(increase(gatepass_bookings_cancelled_total[5m])))",
+          "legendFormat": "success rate",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "spanNulls": true
+          },
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Hold-expiry rate",
+      "description": "Share of seat holds that expired unpaid (5 minutes), and expiries per minute.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gatepass-prom"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gatepass-prom"
+          },
+          "expr": "sum(increase(gatepass_holds_expired_total[5m])) / sum(increase(gatepass_holds_created_total[5m]))",
+          "legendFormat": "expired / created",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gatepass-prom"
+          },
+          "expr": "sum(rate(gatepass_holds_expired_total[1m])) * 60",
+          "legendFormat": "expired per minute",
+          "refId": "B",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Consumer lag",
+      "description": "Messages each consumer group has not read yet. It should stay near zero; a climbing line is a slow or stuck consumer.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gatepass-prom"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gatepass-prom"
+          },
+          "expr": "sum by (group) (gatepass_consumer_lag)",
+          "legendFormat": "{{group}}",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "DLQ depth",
+      "description": "Messages sitting in each dead-letter topic. Anything above zero needs a look, then a replay.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gatepass-prom"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gatepass-prom"
+          },
+          "expr": "sum by (dlq) (gatepass_dlq_depth)",
+          "legendFormat": "{{dlq}}",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "p95 payment latency",
+      "description": "95th percentile of the time from a payment being created to its final outcome.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gatepass-prom"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 18
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gatepass-prom"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(gatepass_payment_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "editable": false
+}
