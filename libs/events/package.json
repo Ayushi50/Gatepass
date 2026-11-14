@@ -1,0 +1,19 @@
+{
+  "name": "@gatepass/events",
+  "version": "0.0.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "generate": "buf generate",
+    "lint": "buf lint",
+    "breaking": "buf breaking --against \"../../.git#ref=origin/main,subdir=libs/events\""
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.17.0",
+    "uuid": "^10.0.0"
+  },
+  "devDependencies": {
+    "@types/uuid": "^10.0.0"
+  }
+}

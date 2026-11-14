@@ -1,0 +1,175 @@
+syntax = "proto3";
+
+// Gatepass event catalog. One file on purpose: it is registered as-is in the
+// schema registry, so it must not import anything.
+//
+// Compatibility rules (enforced by `buf breaking` in CI and the registry's
+// BACKWARD mode): only ADD fields or ADD oneof members. Never renumber,
+// retype, rename or remove. To retire a field use `reserved`.
+package gatepass.events.v1;
+
+// Every message on every topic is an EventEnvelope. Topic name == event_type.
+message EventEnvelope {
+  string event_id = 1;       // UUIDv7. Globally unique; the inbox dedupe key.
+  string event_type = 2;     // e.g. "seats.held". Must match the payload case.
+  int32 version = 3;         // payload schema version, starts at 1.
+  int64 occurred_at_ms = 4;  // epoch milliseconds, UTC.
+  string correlation_id = 5; // the booking ID; constant for the whole saga.
+  string causation_id = 6;   // event_id of the event that triggered this one ("" for a root event).
+  string producer = 7;       // emitting service, e.g. "seat-inventory".
+
+  oneof payload {
+    EventPublished event_published = 10;
+    BookingRequested booking_requested = 11;
+    BookingConfirmed booking_confirmed = 12;
+    BookingCancelled booking_cancelled = 13;
+    SeatsHeld seats_held = 14;
+    SeatsHoldFailed seats_hold_failed = 15;
+    SeatsReleased seats_released = 16;
+    SeatsSold seats_sold = 17;
+    HoldExpired hold_expired = 18;
+    PaymentSucceeded payment_succeeded = 19;
+    PaymentFailed payment_failed = 20;
+    RefundRequested refund_requested = 21;
+    RefundCompleted refund_completed = 22;
+    TicketIssued ticket_issued = 23;
+    TicketVoided ticket_voided = 24;
+  }
+}
+
+// ---- catalog ----------------------------------------------------------------
+
+message Tier {
+  string name = 1;         // "Front" | "Mid" | "Back"
+  int64 price_minor = 2;   // smallest currency unit (paise/cents)
+  int32 seat_count = 3;
+}
+
+message EventPublished {
+  string event_id = 1;
+  string organizer_id = 2;
+  string title = 3;
+  string category = 4;
+  string venue = 5;
+  int64 starts_at_ms = 6;
+  string currency = 7;     // ISO 4217, e.g. "INR"
+  repeated Tier tiers = 8;
+  repeated string seat_ids = 9;  // full seat map, e.g. "A1".."F12"
+}
+
+// ---- booking ----------------------------------------------------------------
+
+message BookingRequested {
+  string booking_id = 1;
+  string event_id = 2;
+  string user_id = 3;
+  repeated string seat_ids = 4;
+}
+
+message BookingConfirmed {
+  string booking_id = 1;
+  string event_id = 2;
+  string user_id = 3;
+  repeated string seat_ids = 4;
+  int64 amount_minor = 5;
+  string currency = 6;
+}
+
+message BookingCancelled {
+  string booking_id = 1;
+  string event_id = 2;
+  string reason = 3;       // "payment_failed" | "hold_expired" | "hold_failed" | "user_cancelled"
+}
+
+// ---- seat inventory ---------------------------------------------------------
+
+message SeatsHeld {
+  string booking_id = 1;
+  string event_id = 2;
+  repeated string seat_ids = 3;
+  int64 hold_expires_at_ms = 4;  // server time; the browser never uses its own clock
+}
+
+message SeatsHoldFailed {
+  string booking_id = 1;
+  string event_id = 2;
+  repeated string seat_ids = 3;  // the seats that could not be held
+  string reason = 4;             // "seat_unavailable" | "unknown_seat" | ...
+}
+
+message SeatsReleased {
+  string booking_id = 1;
+  string event_id = 2;
+  repeated string seat_ids = 3;
+  string reason = 4;             // "payment_failed" | "hold_expired" | "refunded" | "user_cancelled"
+}
+
+message SeatsSold {
+  string booking_id = 1;
+  string event_id = 2;
+  repeated string seat_ids = 3;
+}
+
+message HoldExpired {
+  string booking_id = 1;
+  string event_id = 2;
+  repeated string seat_ids = 3;
+}
+
+// ---- payment ----------------------------------------------------------------
+
+message PaymentSucceeded {
+  string booking_id = 1;
+  string payment_id = 2;
+  int64 amount_minor = 3;
+  string currency = 4;
+  string provider_ref = 5;       // provider's charge/payment id
+}
+
+message PaymentFailed {
+  string booking_id = 1;
+  string payment_id = 2;
+  string reason = 3;
+}
+
+message RefundRequested {
+  string refund_id = 1;
+  string booking_id = 2;
+  string ticket_id = 3;
+  string user_id = 4;
+  int64 amount_minor = 5;
+  string currency = 6;
+  string reason = 7;
+}
+
+message RefundCompleted {
+  string refund_id = 1;
+  string booking_id = 2;
+  string payment_id = 3;
+  int64 amount_minor = 4;
+  string currency = 5;
+}
+
+// ---- ticket -----------------------------------------------------------------
+
+message IssuedTicket {
+  string ticket_id = 1;
+  string seat_id = 2;
+  string tier = 3;
+  string qr_token = 4;           // signed token embedded in the QR code
+}
+
+message TicketIssued {
+  string booking_id = 1;
+  string event_id = 2;
+  string user_id = 3;
+  repeated IssuedTicket tickets = 4;
+}
+
+message TicketVoided {
+  string ticket_id = 1;
+  string booking_id = 2;
+  string event_id = 3;
+  string seat_id = 4;
+  string reason = 5;             // "refunded"
+}
