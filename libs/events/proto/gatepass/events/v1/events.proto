@@ -45,6 +45,15 @@ message Tier {
   int32 seat_count = 3;
 }
 
+// One seat of the event's seat map. Added after v1 shipped; additive, so not a breaking change.
+message SeatDef {
+  string seat_id = 1;      // "C6"
+  string row = 2;          // "C"
+  int32 number = 3;        // 6
+  string tier = 4;         // "Mid"
+  int64 price_minor = 5;
+}
+
 message EventPublished {
   string event_id = 1;
   string organizer_id = 2;
@@ -54,7 +63,8 @@ message EventPublished {
   int64 starts_at_ms = 6;
   string currency = 7;     // ISO 4217, e.g. "INR"
   repeated Tier tiers = 8;
-  repeated string seat_ids = 9;  // full seat map, e.g. "A1".."F12"
+  repeated string seat_ids = 9 [deprecated = true];  // superseded by `seats`
+  repeated SeatDef seats = 10;   // the full seat map
 }
 
 // ---- booking ----------------------------------------------------------------
