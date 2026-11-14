@@ -1,0 +1,5 @@
+design/
+node_modules/
+libs/events/src/gen/
+pnpm-lock.yaml
+gatepass-ui.zip
