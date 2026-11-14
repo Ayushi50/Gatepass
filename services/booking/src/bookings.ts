@@ -9,6 +9,7 @@ export const MAX_SEATS_PER_BOOKING = 6;
 
 export class ValidationError extends Error {}
 export class NotFoundError extends Error {}
+export class ForbiddenError extends Error {}
 
 export interface Booking {
   id: string;

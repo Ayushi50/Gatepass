@@ -8,11 +8,15 @@ import { migrate } from '@gatepass/db';
 import { buildEnvelope, decodeEnvelope } from '@gatepass/events';
 import { startTestPostgres, type TestDatabase, type TestPostgres } from '@gatepass/testing';
 import {
+  ForbiddenError,
   NotFoundError,
   ValidationError,
   createBooking,
   getBooking,
+  approveRefund,
   onPaymentSucceeded,
+  onRefundCompleted,
+  onRefundRequested,
   onSeatsHeld,
   onSeatsHoldFailed,
   onSeatsReleased,
@@ -340,5 +344,149 @@ describe('payment path', () => {
 
   it('a payment for a booking that does not exist fails loudly', async () => {
     await expect(onPaymentSucceeded(pool, paid('ghost'))).rejects.toBeInstanceOf(NotFoundError);
+  });
+});
+
+describe('refund saga', () => {
+  const requestedRefund = (
+    bookingId: string,
+    refundId: string,
+    ticketId: string,
+    organizerId = 'org-1',
+  ) =>
+    buildEnvelope({
+      eventType: 'refund.requested',
+      correlationId: bookingId,
+      producer: 'ticket',
+      payload: {
+        refundId,
+        bookingId,
+        ticketId,
+        userId: 'u1',
+        amountMinor: 180000n,
+        currency: 'INR',
+        reason: '',
+        eventId: 'neon-nights',
+        seatId: 'C6',
+        organizerId,
+      },
+    });
+  const completedRefund = (bookingId: string, refundId: string, ticketId: string) =>
+    buildEnvelope({
+      eventType: 'refund.completed',
+      correlationId: bookingId,
+      producer: 'payment',
+      payload: {
+        refundId,
+        bookingId,
+        paymentId: 'p',
+        amountMinor: 180000n,
+        currency: 'INR',
+        eventId: 'neon-nights',
+        ticketId,
+        seatId: 'C6',
+        userId: 'u1',
+        automatic: false,
+      },
+    });
+  const stateOf = async (refundId: string) =>
+    (await pool.query('SELECT state FROM refunds WHERE id=$1', [refundId])).rows[0]?.state;
+
+  it('records a request as REQUESTED, once, even if delivered twice', async () => {
+    const ev = requestedRefund('bk-r1', 'rf-1', 't-1');
+    await onRefundRequested(pool, ev);
+    await onRefundRequested(pool, ev);
+    expect(await stateOf('rf-1')).toBe('REQUESTED');
+    expect((await pool.query("SELECT count(*) FROM refunds WHERE id='rf-1'")).rows[0].count).toBe(
+      '1',
+    );
+  });
+
+  it("only the event's organizer can approve; unknown refunds are 404", async () => {
+    await onRefundRequested(pool, requestedRefund('bk-r2', 'rf-2', 't-2', 'org-1'));
+    await expect(approveRefund(pool, 'rf-2', 'org-2')).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(approveRefund(pool, 'nope', 'org-1')).rejects.toBeInstanceOf(NotFoundError);
+    expect(await stateOf('rf-2')).toBe('REQUESTED');
+    expect(await outboxOf('bk-r2', 'refund.approved')).toHaveLength(0);
+  });
+
+  it('approval moves REQUESTED -> APPROVED and publishes refund.approved with everything payment needs', async () => {
+    await onRefundRequested(pool, requestedRefund('bk-r3', 'rf-3', 't-3'));
+    expect(await approveRefund(pool, 'rf-3', 'org-1')).toEqual({
+      refundId: 'rf-3',
+      state: 'APPROVED',
+    });
+    expect(await stateOf('rf-3')).toBe('APPROVED');
+    const [ev] = await outboxOf('bk-r3', 'refund.approved');
+    expect(ev!.correlationId).toBe('bk-r3');
+    if (ev!.payload.case !== 'refundApproved') throw new Error('wrong payload');
+    expect(ev!.payload.value).toMatchObject({
+      refundId: 'rf-3',
+      ticketId: 't-3',
+      eventId: 'neon-nights',
+      seatId: 'C6',
+      userId: 'u1',
+      amountMinor: 180000n,
+      currency: 'INR',
+    });
+  });
+
+  it('approving twice, or 10 times at once, publishes refund.approved exactly once', async () => {
+    await onRefundRequested(pool, requestedRefund('bk-r4', 'rf-4', 't-4'));
+    await approveRefund(pool, 'rf-4', 'org-1');
+    expect(await approveRefund(pool, 'rf-4', 'org-1')).toEqual({
+      refundId: 'rf-4',
+      state: 'APPROVED',
+    });
+    await onRefundRequested(pool, requestedRefund('bk-r5', 'rf-5', 't-5'));
+    await Promise.all(Array.from({ length: 10 }, () => approveRefund(pool, 'rf-5', 'org-1')));
+    expect(await outboxOf('bk-r4', 'refund.approved')).toHaveLength(1);
+    expect(await outboxOf('bk-r5', 'refund.approved')).toHaveLength(1);
+  });
+
+  it('refund.completed finishes an approved refund; a completed refund can never go back', async () => {
+    await onRefundRequested(pool, requestedRefund('bk-r6', 'rf-6', 't-6'));
+    await approveRefund(pool, 'rf-6', 'org-1');
+    const done = completedRefund('bk-r6', 'rf-6', 't-6');
+    await onRefundCompleted(pool, done);
+    await onRefundCompleted(pool, done);
+    expect(await stateOf('rf-6')).toBe('COMPLETED');
+    expect(await approveRefund(pool, 'rf-6', 'org-1')).toEqual({
+      refundId: 'rf-6',
+      state: 'COMPLETED',
+    });
+    expect(await outboxOf('bk-r6', 'refund.approved')).toHaveLength(1);
+  });
+
+  it('a completion that skipped approval, and an automatic refund, change nothing', async () => {
+    await onRefundRequested(pool, requestedRefund('bk-r7', 'rf-7', 't-7'));
+    await onRefundCompleted(pool, completedRefund('bk-r7', 'rf-7', 't-7'));
+    expect(await stateOf('rf-7')).toBe('REQUESTED');
+    await onRefundCompleted(pool, completedRefund('bk-r7', 'auto-p', '')); // automatic: no ticket
+  });
+
+  it('a ticket can be refunded only once (second request for the same ticket is ignored)', async () => {
+    await onRefundRequested(pool, requestedRefund('bk-r8', 'rf-8a', 't-8'));
+    await onRefundRequested(pool, requestedRefund('bk-r8', 'rf-8b', 't-8'));
+    expect(await stateOf('rf-8a')).toBe('REQUESTED');
+    expect(await stateOf('rf-8b')).toBeUndefined();
+  });
+
+  it('HTTP: POST /refunds/:id/approve answers 200, 400, 403, 404', async () => {
+    await onRefundRequested(pool, requestedRefund('bk-r9', 'rf-9', 't-9', 'org-1'));
+    await request(app.getHttpServer()).post('/refunds/rf-9/approve').send({}).expect(400);
+    await request(app.getHttpServer())
+      .post('/refunds/rf-9/approve')
+      .send({ organizerId: 'org-2' })
+      .expect(403);
+    await request(app.getHttpServer())
+      .post('/refunds/nope/approve')
+      .send({ organizerId: 'org-1' })
+      .expect(404);
+    const ok = await request(app.getHttpServer())
+      .post('/refunds/rf-9/approve')
+      .send({ organizerId: 'org-1' })
+      .expect(200);
+    expect(ok.body).toEqual({ refundId: 'rf-9', state: 'APPROVED' });
   });
 });

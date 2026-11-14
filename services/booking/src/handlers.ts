@@ -2,6 +2,7 @@ import type { Pool } from 'pg';
 import { buildEnvelope, type EventEnvelope } from '@gatepass/events';
 import { appendToOutbox, processOnce } from '@gatepass/outbox';
 import { PRODUCER, getBooking, transitionBooking } from './bookings';
+import { onRefundCompleted, onRefundRequested } from './refunds';
 
 export const CONSUMER_GROUP = 'booking';
 export const CONSUMED_TOPICS = [
@@ -10,6 +11,8 @@ export const CONSUMED_TOPICS = [
   'payment.succeeded',
   'seats.sold',
   'seats.released',
+  'refund.requested',
+  'refund.completed',
 ];
 
 /** seats.held -> REQUESTED becomes HELD, remembering the server-computed hold expiry. */
@@ -123,5 +126,7 @@ export function bookingHandler(pool: Pool) {
     if (env.eventType === 'payment.succeeded') return onPaymentSucceeded(pool, env);
     if (env.eventType === 'seats.sold') return onSeatsSold(pool, env);
     if (env.eventType === 'seats.released') return onSeatsReleased(pool, env);
+    if (env.eventType === 'refund.requested') return onRefundRequested(pool, env);
+    if (env.eventType === 'refund.completed') return onRefundCompleted(pool, env);
   };
 }

@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   Body,
+  ForbiddenException,
+  HttpCode,
   Controller,
   Get,
   Inject,
@@ -9,7 +11,9 @@ import {
   Post,
 } from '@nestjs/common';
 import type { Pool } from 'pg';
+import { approveRefund } from '../refunds';
 import {
+  ForbiddenError,
   NotFoundError,
   ValidationError,
   createBooking,
@@ -49,6 +53,20 @@ export class BookingController {
       return await getBooking(this.pool, id);
     } catch (err) {
       if (err instanceof NotFoundError) throw new NotFoundException(err.message);
+      throw err;
+    }
+  }
+
+  /** The organizer approves a refund (organizer id from the verified token, via the gateway). */
+  @Post('refunds/:id/approve')
+  @HttpCode(200)
+  async approve(@Param('id') id: string, @Body() body: { organizerId?: string }) {
+    if (!body?.organizerId) throw new BadRequestException('organizerId is required');
+    try {
+      return await approveRefund(this.pool, id, body.organizerId);
+    } catch (err) {
+      if (err instanceof NotFoundError) throw new NotFoundException(err.message);
+      if (err instanceof ForbiddenError) throw new ForbiddenException(err.message);
       throw err;
     }
   }
