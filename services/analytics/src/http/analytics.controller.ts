@@ -9,7 +9,7 @@ import {
   Query,
 } from '@nestjs/common';
 import type { Pool } from 'pg';
-import { ForbiddenError, NotFoundError, getActivity, getSummary } from '../queries';
+import { ForbiddenError, NotFoundError, getActivity, getRefunds, getSummary } from '../queries';
 
 export const POOL = Symbol('POOL');
 
@@ -37,6 +37,12 @@ export class AnalyticsController {
   summary(@Param('id') id: string, @Query('organizerId') organizerId?: string) {
     if (!organizerId) throw new BadRequestException('organizerId is required');
     return guard(() => getSummary(this.pool, id, organizerId));
+  }
+
+  @Get('organizer/events/:id/refunds')
+  refunds(@Param('id') id: string, @Query('organizerId') organizerId?: string) {
+    if (!organizerId) throw new BadRequestException('organizerId is required');
+    return guard(() => getRefunds(this.pool, id, organizerId));
   }
 
   @Get('organizer/events/:id/activity')

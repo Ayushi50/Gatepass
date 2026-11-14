@@ -19,7 +19,19 @@ export interface Summary {
   total: number;
   held: number;
   left: number;
+  /** The "Refund requests" tile: requests still waiting for the organizer. */
+  refundRequests: number;
   tiers: TierSummary[];
+}
+
+export interface RefundItem {
+  id: string;
+  bookingId: string;
+  userId: string;
+  seatId: string;
+  amountMinor: number;
+  currency: string;
+  state: 'requested' | 'approved' | 'completed';
 }
 
 /** Loads the event and refuses anyone but its organizer (no peeking at other people's sales). */
@@ -54,6 +66,10 @@ export async function getSummary(
       GROUP BY tier ORDER BY min(seat_id)`,
     [eventId],
   );
+  const open = await pool.query<{ n: string }>(
+    'SELECT count(*) AS n FROM refunds WHERE event_id = $1 AND rank = 1',
+    [eventId],
+  );
   const sold = rows.reduce((n, r) => n + Number(r.sold), 0);
   const held = rows.reduce((n, r) => n + Number(r.held), 0);
   return {
@@ -64,6 +80,7 @@ export async function getSummary(
     total: ev.total_seats,
     held,
     left: ev.total_seats - sold - held,
+    refundRequests: Number(open.rows[0]!.n),
     tiers: rows.map((r) => ({ name: r.tier, sold: Number(r.sold), total: Number(r.total) })),
   };
 }
@@ -97,5 +114,38 @@ export async function getActivity(
     text: r.text,
     failed: r.failed,
     at: r.occurred_at.toISOString(),
+  }));
+}
+
+const REFUND_STATE = { 1: 'requested', 2: 'approved', 3: 'completed' } as const;
+
+/** Refunds for the organizer's list: still-open requests first (oldest first), then the settled ones. */
+export async function getRefunds(
+  pool: Pool,
+  eventId: string,
+  organizerId: string,
+): Promise<RefundItem[]> {
+  await authorize(pool, eventId, organizerId);
+  const { rows } = await pool.query<{
+    refund_id: string;
+    booking_id: string;
+    user_id: string;
+    seat_id: string;
+    amount_minor: string;
+    currency: string;
+    rank: 1 | 2 | 3;
+  }>(
+    `SELECT refund_id, booking_id, user_id, seat_id, amount_minor, currency, rank
+       FROM refunds WHERE event_id = $1 ORDER BY rank, created_at, refund_id`,
+    [eventId],
+  );
+  return rows.map((r) => ({
+    id: r.refund_id,
+    bookingId: r.booking_id,
+    userId: r.user_id,
+    seatId: r.seat_id,
+    amountMinor: Number(r.amount_minor),
+    currency: r.currency,
+    state: REFUND_STATE[r.rank],
   }));
 }

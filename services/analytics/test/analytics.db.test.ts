@@ -12,6 +12,7 @@ import {
   ForbiddenError,
   NotFoundError,
   getActivity,
+  getRefunds,
   getSummary,
   onEvent,
 } from '../src';
@@ -110,6 +111,7 @@ describe('summary', () => {
       total: 5,
       held: 0,
       left: 5,
+      refundRequests: 0,
       tiers: [
         { name: 'Front', sold: 0, total: 2 },
         { name: 'Mid', sold: 0, total: 3 },
@@ -266,5 +268,163 @@ describe('HTTP', () => {
       .query({ organizerId: 'org-1' })
       .expect(404);
     await request(app.getHttpServer()).get(`/organizer/events/${eventId}/summary`).expect(400);
+  });
+});
+
+describe('refunds list and tile', () => {
+  beforeEach(async () => {
+    await pool.query('TRUNCATE refunds'); // refund ids are reused by these tests
+  });
+
+  const refundEvent = (
+    type: 'refund.requested' | 'refund.approved' | 'refund.completed',
+    refundId: string,
+    seatId: string,
+    ms: number,
+    over: object = {},
+  ) =>
+    buildEnvelope({
+      eventType: type,
+      correlationId: 'bk-r',
+      producer: 'x',
+      now: at(ms),
+      payload:
+        type === 'refund.requested'
+          ? {
+              refundId,
+              bookingId: 'bk-r',
+              ticketId: `t-${seatId}`,
+              userId: 'aarav',
+              amountMinor: 180000n,
+              currency: 'INR',
+              reason: '',
+              eventId,
+              seatId,
+              organizerId: 'org-1',
+              ...over,
+            }
+          : type === 'refund.approved'
+            ? {
+                refundId,
+                bookingId: 'bk-r',
+                ticketId: `t-${seatId}`,
+                eventId,
+                seatId,
+                userId: 'aarav',
+                amountMinor: 180000n,
+                currency: 'INR',
+                ...over,
+              }
+            : {
+                refundId,
+                bookingId: 'bk-r',
+                paymentId: 'p',
+                amountMinor: 180000n,
+                currency: 'INR',
+                eventId,
+                ticketId: `t-${seatId}`,
+                seatId,
+                userId: 'aarav',
+                automatic: false,
+                ...over,
+              },
+    } as never) as EventEnvelope;
+  const refunds = (organizerId = 'org-1') => getRefunds(pool, eventId, organizerId);
+
+  it('lists open requests with who, seat and amount, and counts them in the tile', async () => {
+    await onEvent(pool, publishedShow());
+    await onEvent(pool, refundEvent('refund.requested', 'r1', 'B1', 10));
+    await onEvent(pool, refundEvent('refund.requested', 'r2', 'A1', 20, { userId: 'isha' }));
+    expect(await refunds()).toEqual([
+      {
+        id: 'r1',
+        bookingId: 'bk-r',
+        userId: 'aarav',
+        seatId: 'B1',
+        amountMinor: 180000,
+        currency: 'INR',
+        state: 'requested',
+      },
+      {
+        id: 'r2',
+        bookingId: 'bk-r',
+        userId: 'isha',
+        seatId: 'A1',
+        amountMinor: 180000,
+        currency: 'INR',
+        state: 'requested',
+      },
+    ]);
+    expect((await summary()).refundRequests).toBe(2);
+  });
+
+  it('approval and completion move a refund through the states and out of the tile', async () => {
+    await onEvent(pool, publishedShow());
+    await onEvent(pool, refundEvent('refund.requested', 'r1', 'B1', 10));
+    await onEvent(pool, refundEvent('refund.requested', 'r2', 'A1', 20));
+    await onEvent(pool, refundEvent('refund.approved', 'r1', 'B1', 30));
+    expect((await refunds()).map((r) => [r.id, r.state])).toEqual([
+      ['r2', 'requested'],
+      ['r1', 'approved'],
+    ]); // open ones first
+    expect((await summary()).refundRequests).toBe(1);
+    await onEvent(pool, refundEvent('refund.completed', 'r1', 'B1', 40));
+    expect((await refunds()).map((r) => [r.id, r.state])).toEqual([
+      ['r2', 'requested'],
+      ['r1', 'completed'],
+    ]);
+  });
+
+  it('out-of-order and duplicate events never move a refund backwards', async () => {
+    await onEvent(pool, publishedShow());
+    await onEvent(pool, refundEvent('refund.completed', 'r1', 'B1', 40)); // arrives first
+    await onEvent(pool, refundEvent('refund.requested', 'r1', 'B1', 10)); // stale
+    await onEvent(pool, refundEvent('refund.approved', 'r1', 'B1', 30)); // stale
+    const dup = refundEvent('refund.requested', 'r2', 'A1', 50);
+    await onEvent(pool, dup);
+    await onEvent(pool, dup);
+    expect((await refunds()).map((r) => [r.id, r.state])).toEqual([
+      ['r2', 'requested'],
+      ['r1', 'completed'],
+    ]);
+    expect((await summary()).refundRequests).toBe(1);
+  });
+
+  it('an automatic refund (no ticket) is not a refund request', async () => {
+    await onEvent(pool, publishedShow());
+    await onEvent(
+      pool,
+      refundEvent('refund.completed', 'auto-1', '', 10, {
+        ticketId: '',
+        seatId: '',
+        automatic: true,
+      }),
+    );
+    expect(await refunds()).toEqual([]);
+  });
+
+  it('is scoped to the organizer, over HTTP too', async () => {
+    await onEvent(pool, publishedShow());
+    await onEvent(pool, refundEvent('refund.requested', 'r1', 'B1', 10));
+    await expect(getRefunds(pool, eventId, 'org-2')).rejects.toBeInstanceOf(ForbiddenError);
+    const ok = await request(app.getHttpServer())
+      .get(`/organizer/events/${eventId}/refunds`)
+      .query({ organizerId: 'org-1' })
+      .expect(200);
+    expect(ok.body).toHaveLength(1);
+    await request(app.getHttpServer())
+      .get(`/organizer/events/${eventId}/refunds`)
+      .query({ organizerId: 'org-2' })
+      .expect(403);
+    await request(app.getHttpServer()).get(`/organizer/events/${eventId}/refunds`).expect(400);
+  });
+
+  it('feeds the live activity with refund lines', async () => {
+    await onEvent(pool, publishedShow());
+    await onEvent(pool, refundEvent('refund.requested', 'r1', 'B1', 10));
+    await onEvent(pool, refundEvent('refund.completed', 'r1', 'B1', 40));
+    const texts = (await feed()).map((a) => a.text);
+    expect(texts).toContain('Refund requested · Row B · seat 1');
+    expect(texts.some((t) => /^Booking GP-[A-Z0-9]{4} · ₹1,800$/.test(t))).toBe(true);
   });
 });

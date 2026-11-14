@@ -3,7 +3,7 @@ import type { Pool } from 'pg';
 import { migrate } from '@gatepass/db';
 import { bookingCode, buildEnvelope } from '@gatepass/events';
 import { startTestPostgres, type TestDatabase, type TestPostgres } from '@gatepass/testing';
-import { onPaymentFailed, onTicketIssued } from '../src';
+import { onPaymentFailed, onRefundCompleted, onTicketIssued } from '../src';
 
 jest.setTimeout(120_000);
 
@@ -108,6 +108,55 @@ describe('payment.failed', () => {
   it('skips an event that names no user (nobody to tell) without failing', async () => {
     await expect(onPaymentFailed(pool, failed('bk-6', ''), log)).resolves.toBeUndefined();
     expect(await rows()).toHaveLength(0);
+  });
+});
+
+describe('refund.completed', () => {
+  const refunded = (bookingId: string, over: object = {}) =>
+    buildEnvelope({
+      eventType: 'refund.completed',
+      correlationId: bookingId,
+      producer: 'payment',
+      payload: {
+        refundId: 'r1',
+        bookingId,
+        paymentId: 'p',
+        amountMinor: 180000n,
+        currency: 'INR',
+        eventId: 'show',
+        ticketId: 't1',
+        seatId: 'C6',
+        userId: 'alice',
+        automatic: false,
+        ...over,
+      },
+    });
+
+  it('emails the buyer that the refund was processed, with amount and seat', async () => {
+    await onRefundCompleted(pool, refunded('bk-8'), log);
+    const [r] = await rows();
+    expect(r).toMatchObject({ channel: 'email', user_id: 'alice', template: 'refund-completed' });
+    expect(r.subject).toContain('₹1,800');
+    expect(r.body).toContain('Row C · seat 6');
+  });
+
+  it('explains an automatic refund differently', async () => {
+    await onRefundCompleted(
+      pool,
+      refunded('bk-9', { automatic: true, ticketId: '', seatId: '' }),
+      log,
+    );
+    const [r] = await rows();
+    expect(r.template).toBe('refund-automatic');
+    expect(r.body).toContain('seat hold ended');
+  });
+
+  it('is idempotent and skips an event that names no user', async () => {
+    const ev = refunded('bk-10');
+    await onRefundCompleted(pool, ev, log);
+    await onRefundCompleted(pool, ev, log);
+    await onRefundCompleted(pool, refunded('bk-11', { userId: '' }), log);
+    expect(await rows()).toHaveLength(1);
   });
 });
 
