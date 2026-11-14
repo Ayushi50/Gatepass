@@ -8,6 +8,7 @@
     "@gatepass/catalog": "workspace:*",
     "@gatepass/db": "workspace:*",
     "@gatepass/events": "workspace:*",
+    "@gatepass/gateway": "workspace:*",
     "@gatepass/messaging": "workspace:*",
     "@gatepass/notification": "workspace:*",
     "@gatepass/outbox": "workspace:*",
@@ -16,6 +17,7 @@
     "@gatepass/testing": "workspace:*",
     "@gatepass/ticket": "workspace:*",
     "@types/pg": "^8.23.1",
+    "kafkajs": "^2.2.4",
     "pg": "^8.23.1"
   }
 }

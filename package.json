@@ -14,7 +14,8 @@
     "test": "pnpm generate && jest --selectProjects unit",
     "schema:lint": "pnpm --filter @gatepass/events lint",
     "schema:breaking": "pnpm --filter @gatepass/events breaking",
-    "replay": "ts-node --transpile-only libs/messaging/bin/replay.ts"
+    "replay": "ts-node --transpile-only libs/messaging/bin/replay.ts",
+    "chaos:real": "ts-node --transpile-only tests/chaos/real/run.ts"
   },
   "devDependencies": {
     "@bufbuild/buf": "^1.75.0",

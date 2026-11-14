@@ -700,6 +700,9 @@ importers:
       '@gatepass/events':
         specifier: workspace:*
         version: link:../../libs/events
+      '@gatepass/gateway':
+        specifier: workspace:*
+        version: link:../../services/gateway
       '@gatepass/messaging':
         specifier: workspace:*
         version: link:../../libs/messaging
@@ -724,6 +727,9 @@ importers:
       '@types/pg':
         specifier: ^8.23.1
         version: 8.23.1
+      kafkajs:
+        specifier: ^2.2.4
+        version: 2.2.4
       pg:
         specifier: ^8.23.1
         version: 8.23.1

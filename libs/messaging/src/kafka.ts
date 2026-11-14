@@ -73,6 +73,22 @@ export class KafkaEventPublisher implements EventPublisher, DeadLetterPublisher 
   }
 }
 
+/**
+ * Consumer-group timing. A process killed without warning (kill -9, a crash, a node loss) is only
+ * noticed when its session times out, and until then its partitions are not served by anyone, so a
+ * shorter session means faster recovery (at the price of more rebalances on a slow network).
+ * Defaults are kafkajs's; override with KAFKA_SESSION_TIMEOUT_MS / KAFKA_HEARTBEAT_INTERVAL_MS /
+ * KAFKA_REBALANCE_TIMEOUT_MS.
+ */
+export function consumerTimingFromEnv(env: NodeJS.ProcessEnv = process.env) {
+  const n = (v: string | undefined) => (v ? Number(v) : undefined);
+  return {
+    sessionTimeout: n(env.KAFKA_SESSION_TIMEOUT_MS),
+    heartbeatInterval: n(env.KAFKA_HEARTBEAT_INTERVAL_MS),
+    rebalanceTimeout: n(env.KAFKA_REBALANCE_TIMEOUT_MS),
+  };
+}
+
 export interface KafkaConsumerOptions extends Omit<MessageHandlerOptions, 'dlq'> {
   kafka: Kafka;
   topics: string[];
@@ -86,7 +102,13 @@ export class KafkaEventConsumer {
   private readonly consumer: Consumer;
 
   constructor(private readonly opts: KafkaConsumerOptions) {
-    this.consumer = opts.kafka.consumer({ groupId: opts.groupId });
+    const timing = consumerTimingFromEnv();
+    this.consumer = opts.kafka.consumer({
+      groupId: opts.groupId,
+      ...(timing.sessionTimeout ? { sessionTimeout: timing.sessionTimeout } : {}),
+      ...(timing.heartbeatInterval ? { heartbeatInterval: timing.heartbeatInterval } : {}),
+      ...(timing.rebalanceTimeout ? { rebalanceTimeout: timing.rebalanceTimeout } : {}),
+    });
   }
 
   async start(): Promise<void> {
