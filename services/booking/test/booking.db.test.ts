@@ -12,8 +12,11 @@ import {
   ValidationError,
   createBooking,
   getBooking,
+  onPaymentSucceeded,
   onSeatsHeld,
   onSeatsHoldFailed,
+  onSeatsReleased,
+  onSeatsSold,
 } from '../src';
 import { BookingModule } from '../src/http/booking.module';
 
@@ -216,5 +219,126 @@ describe('HTTP', () => {
       .expect(400);
     await request(app.getHttpServer()).post('/bookings').send({}).expect(400);
     await request(app.getHttpServer()).get('/bookings/unknown').expect(404);
+  });
+});
+
+const heldWithAmount = (bookingId: string) =>
+  buildEnvelope({
+    eventType: 'seats.held',
+    correlationId: bookingId,
+    producer: 'seat-inventory',
+    payload: {
+      bookingId,
+      eventId: 'neon-nights',
+      seatIds: ['C6', 'C7'],
+      holdExpiresAtMs: 1_700_000_600_000n,
+      amountMinor: 360000n,
+      currency: 'INR',
+    },
+  });
+
+const paid = (bookingId: string) =>
+  buildEnvelope({
+    eventType: 'payment.succeeded',
+    correlationId: bookingId,
+    producer: 'payment',
+    payload: {
+      bookingId,
+      paymentId: 'pay-1',
+      amountMinor: 360000n,
+      currency: 'INR',
+      providerRef: 'p',
+    },
+  });
+
+const sold = (bookingId: string) =>
+  buildEnvelope({
+    eventType: 'seats.sold',
+    correlationId: bookingId,
+    producer: 'seat-inventory',
+    payload: { bookingId, eventId: 'neon-nights', seatIds: ['C6', 'C7'] },
+  });
+
+const released = (bookingId: string, reason = 'payment_failed') =>
+  buildEnvelope({
+    eventType: 'seats.released',
+    correlationId: bookingId,
+    producer: 'seat-inventory',
+    payload: { bookingId, eventId: 'neon-nights', seatIds: ['C6', 'C7'], reason },
+  });
+
+describe('payment path', () => {
+  it('stores the amount from seats.held', async () => {
+    const b = await newBooking();
+    await onSeatsHeld(pool, heldWithAmount(b.id));
+    expect(await getBooking(pool, b.id)).toMatchObject({ amountMinor: 360000, currency: 'INR' });
+  });
+
+  it('HELD -> PAID -> CONFIRMED, publishing booking.confirmed once with the amount', async () => {
+    const b = await newBooking();
+    await onSeatsHeld(pool, heldWithAmount(b.id));
+    await onPaymentSucceeded(pool, paid(b.id));
+    expect((await getBooking(pool, b.id)).state).toBe('PAID');
+
+    const soldEvent = sold(b.id);
+    await onSeatsSold(pool, soldEvent);
+    await onSeatsSold(pool, soldEvent); // duplicate
+    expect((await getBooking(pool, b.id)).state).toBe('CONFIRMED');
+    expect(await transitions(b.id)).toEqual([
+      '->REQUESTED',
+      'REQUESTED>HELD',
+      'HELD>PAID',
+      'PAID>CONFIRMED',
+    ]);
+    const confirmed = await outboxOf(b.id, 'booking.confirmed');
+    expect(confirmed).toHaveLength(1);
+    expect(confirmed[0]!.causationId).toBe(soldEvent.eventId);
+    if (confirmed[0]!.payload.case !== 'bookingConfirmed') throw new Error('wrong payload');
+    expect(confirmed[0]!.payload.value).toMatchObject({
+      bookingId: b.id,
+      userId: 'u1',
+      seatIds: ['C6', 'C7'],
+      amountMinor: 360000n,
+      currency: 'INR',
+    });
+  });
+
+  it('seats.sold overtaking payment.succeeded still confirms, and the late payment event is ignored', async () => {
+    const b = await newBooking();
+    await onSeatsHeld(pool, heldWithAmount(b.id));
+    await onSeatsSold(pool, sold(b.id));
+    await onPaymentSucceeded(pool, paid(b.id));
+    expect((await getBooking(pool, b.id)).state).toBe('CONFIRMED');
+    expect(await outboxOf(b.id, 'booking.confirmed')).toHaveLength(1);
+  });
+
+  it('seats.released cancels a HELD booking with the release reason and publishes booking.cancelled', async () => {
+    const b = await newBooking();
+    await onSeatsHeld(pool, heldWithAmount(b.id));
+    const rel = released(b.id);
+    await onSeatsReleased(pool, rel);
+    await onSeatsReleased(pool, rel);
+    expect(await getBooking(pool, b.id)).toMatchObject({
+      state: 'CANCELLED',
+      cancelReason: 'payment_failed',
+    });
+    const cancelled = await outboxOf(b.id, 'booking.cancelled');
+    expect(cancelled).toHaveLength(1);
+    expect(cancelled[0]!.causationId).toBe(rel.eventId);
+    if (cancelled[0]!.payload.case !== 'bookingCancelled') throw new Error('wrong payload');
+    expect(cancelled[0]!.payload.value.reason).toBe('payment_failed');
+  });
+
+  it('never cancels a booking that is already paid or confirmed', async () => {
+    const b = await newBooking();
+    await onSeatsHeld(pool, heldWithAmount(b.id));
+    await onPaymentSucceeded(pool, paid(b.id));
+    await onSeatsReleased(pool, released(b.id));
+    expect((await getBooking(pool, b.id)).state).toBe('PAID');
+    expect(await outboxOf(b.id, 'booking.cancelled')).toHaveLength(0);
+  });
+
+  it('a payment for a booking that does not exist fails loudly', async () => {
+    await expect(onPaymentSucceeded(pool, paid('ghost'))).rejects.toBeInstanceOf(NotFoundError);
   });
 });

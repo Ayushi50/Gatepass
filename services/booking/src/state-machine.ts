@@ -1,13 +1,16 @@
 /**
  * The booking saga as an explicit state machine. The current state lives in the `bookings`
  * table (persisted, so the saga resumes after a crash) and every change is recorded in
- * `booking_transitions`. Later phases add states (PAID, CONFIRMED, REFUNDED, ...) here.
+ * `booking_transitions`. Later phases add states (REFUNDED, ...) here.
  */
-export type BookingState = 'REQUESTED' | 'HELD' | 'CANCELLED';
+export type BookingState = 'REQUESTED' | 'HELD' | 'PAID' | 'CONFIRMED' | 'CANCELLED';
 
 export const TRANSITIONS: Readonly<Record<BookingState, readonly BookingState[]>> = {
   REQUESTED: ['HELD', 'CANCELLED'],
-  HELD: [],
+  // HELD -> CONFIRMED exists because seats.sold (a different topic) can overtake payment.succeeded
+  HELD: ['PAID', 'CONFIRMED', 'CANCELLED'],
+  PAID: ['CONFIRMED'],
+  CONFIRMED: [],
   CANCELLED: [],
 };
 

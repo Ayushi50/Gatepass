@@ -19,6 +19,8 @@ export interface Booking {
   /** Set when seats are held. Server time (ISO); the browser must not use its own clock. */
   holdExpiresAt: string | null;
   cancelReason: string | null;
+  amountMinor: number | null;
+  currency: string | null;
   /** Server time when this response was produced, so a client can correct for clock skew. */
   serverTime: string;
 }
@@ -86,8 +88,11 @@ export async function getBooking(
     state: BookingState;
     hold_expires_at: Date | null;
     cancel_reason: string | null;
+    amount_minor: string | null;
+    currency: string | null;
   }>(
-    `SELECT id, event_id, user_id, seat_ids, state, hold_expires_at, cancel_reason
+    `SELECT id, event_id, user_id, seat_ids, state, hold_expires_at, cancel_reason,
+            amount_minor, currency
        FROM bookings WHERE id = $1`,
     [id],
   );
@@ -101,6 +106,8 @@ export async function getBooking(
     state: r.state,
     holdExpiresAt: r.hold_expires_at ? r.hold_expires_at.toISOString() : null,
     cancelReason: r.cancel_reason,
+    amountMinor: r.amount_minor === null ? null : Number(r.amount_minor),
+    currency: r.currency,
     serverTime: now().toISOString(),
   };
 }
@@ -118,7 +125,15 @@ export async function transitionBooking(
   tx: Queryable,
   bookingId: string,
   to: BookingState,
-  opts: { causeEventId: string; holdExpiresAt?: Date; cancelReason?: string },
+  opts: {
+    causeEventId: string;
+    holdExpiresAt?: Date;
+    cancelReason?: string;
+    amountMinor?: number;
+    currency?: string;
+    /** Only apply from these states; any other current state is `ignored`. */
+    onlyFrom?: BookingState[];
+  },
 ): Promise<TransitionOutcome> {
   const { rows } = await tx.query<{ state: BookingState }>(
     'SELECT state FROM bookings WHERE id = $1 FOR UPDATE',
@@ -127,15 +142,25 @@ export async function transitionBooking(
   const current = rows[0]?.state;
   if (!current) throw new NotFoundError(`booking ${bookingId} not found`);
   if (current === to) return 'already';
+  if (opts.onlyFrom && !opts.onlyFrom.includes(current)) return 'ignored';
   if (!canTransition(current, to)) return 'ignored';
   assertTransition(current, to);
 
   await tx.query(
     `UPDATE bookings
         SET state = $2, hold_expires_at = COALESCE($3, hold_expires_at),
-            cancel_reason = COALESCE($4, cancel_reason), version = version + 1, updated_at = now()
+            cancel_reason = COALESCE($4, cancel_reason),
+            amount_minor = COALESCE($5, amount_minor), currency = COALESCE($6, currency),
+            version = version + 1, updated_at = now()
       WHERE id = $1`,
-    [bookingId, to, opts.holdExpiresAt ?? null, opts.cancelReason ?? null],
+    [
+      bookingId,
+      to,
+      opts.holdExpiresAt ?? null,
+      opts.cancelReason ?? null,
+      opts.amountMinor ?? null,
+      opts.currency ?? null,
+    ],
   );
   await tx.query(
     `INSERT INTO booking_transitions (booking_id, from_state, to_state, cause_event_id)
