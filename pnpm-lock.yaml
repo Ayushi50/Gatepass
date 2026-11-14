@@ -565,6 +565,9 @@ importers:
       '@gatepass/outbox':
         specifier: workspace:*
         version: link:../../libs/outbox
+      '@gatepass/payment':
+        specifier: workspace:*
+        version: link:../../services/payment
       '@gatepass/seat-inventory':
         specifier: workspace:*
         version: link:../../services/seat-inventory

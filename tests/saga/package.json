@@ -9,6 +9,7 @@
     "@gatepass/events": "workspace:*",
     "@gatepass/messaging": "workspace:*",
     "@gatepass/outbox": "workspace:*",
+    "@gatepass/payment": "workspace:*",
     "@gatepass/seat-inventory": "workspace:*",
     "@gatepass/testing": "workspace:*",
     "@types/pg": "^8.23.1",
