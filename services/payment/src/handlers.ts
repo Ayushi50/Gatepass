@@ -30,10 +30,14 @@ export async function onSeatsReleased(pool: Pool, env: EventEnvelope): Promise<v
   if (env.payload.case !== 'seatsReleased') return;
   const p = env.payload.value;
   await processOnce(pool, CONSUMER_GROUP, env, async (tx) => {
+    // Closes the payable, or, if seats.held has not been seen yet (it can arrive later), leaves a
+    // closed one behind so that late seats.held cannot make the booking payable again.
     await tx.query(
-      `UPDATE payables SET state = 'closed', updated_at = now()
-        WHERE booking_id = $1 AND state = 'open'`,
-      [p.bookingId],
+      `INSERT INTO payables (booking_id, event_id, amount_minor, currency, hold_expires_at, state)
+       VALUES ($1, $2, 0, '', now(), 'closed')
+       ON CONFLICT (booking_id) DO UPDATE SET state = 'closed', updated_at = now()
+         WHERE payables.state = 'open'`,
+      [p.bookingId, p.eventId],
     );
   });
 }

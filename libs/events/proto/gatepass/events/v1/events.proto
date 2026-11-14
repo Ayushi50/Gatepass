@@ -123,6 +123,8 @@ message SeatsSold {
   string booking_id = 1;
   string event_id = 2;
   repeated string seat_ids = 3;
+  int64 amount_minor = 4;        // value of the seats sold, so a consumer needs no earlier event
+  string currency = 5;
 }
 
 message HoldExpired {

@@ -1,0 +1,21 @@
+{
+  "name": "@gatepass/chaos-tests",
+  "version": "0.0.0",
+  "private": true,
+  "devDependencies": {
+    "@gatepass/analytics": "workspace:*",
+    "@gatepass/booking": "workspace:*",
+    "@gatepass/catalog": "workspace:*",
+    "@gatepass/db": "workspace:*",
+    "@gatepass/events": "workspace:*",
+    "@gatepass/messaging": "workspace:*",
+    "@gatepass/notification": "workspace:*",
+    "@gatepass/outbox": "workspace:*",
+    "@gatepass/payment": "workspace:*",
+    "@gatepass/seat-inventory": "workspace:*",
+    "@gatepass/testing": "workspace:*",
+    "@gatepass/ticket": "workspace:*",
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.1"
+  }
+}

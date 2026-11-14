@@ -342,6 +342,29 @@ describe('payment path', () => {
     expect(await outboxOf(b.id, 'booking.cancelled')).toHaveLength(0);
   });
 
+  it('an EXPIRED hold cancels even a booking that already saw payment.succeeded (the payment will be refunded)', async () => {
+    const b = await newBooking();
+    await onSeatsHeld(pool, heldWithAmount(b.id));
+    await onPaymentSucceeded(pool, paid(b.id)); // payment.succeeded overtook the release
+    expect((await getBooking(pool, b.id)).state).toBe('PAID');
+    await onSeatsReleased(pool, released(b.id, 'hold_expired'));
+    expect(await getBooking(pool, b.id)).toMatchObject({
+      state: 'CANCELLED',
+      cancelReason: 'hold_expired',
+    });
+    expect(await outboxOf(b.id, 'booking.cancelled')).toHaveLength(1);
+    expect(await outboxOf(b.id, 'booking.confirmed')).toHaveLength(0);
+  });
+
+  it('but an expired-hold release never un-confirms a confirmed booking', async () => {
+    const b = await newBooking();
+    await onSeatsHeld(pool, heldWithAmount(b.id));
+    await onPaymentSucceeded(pool, paid(b.id));
+    await onSeatsSold(pool, sold(b.id));
+    await onSeatsReleased(pool, released(b.id, 'hold_expired'));
+    expect((await getBooking(pool, b.id)).state).toBe('CONFIRMED');
+  });
+
   it('a payment for a booking that does not exist fails loudly', async () => {
     await expect(onPaymentSucceeded(pool, paid('ghost'))).rejects.toBeInstanceOf(NotFoundError);
   });
@@ -488,5 +511,107 @@ describe('refund saga', () => {
       .send({ organizerId: 'org-1' })
       .expect(200);
     expect(ok.body).toEqual({ refundId: 'rf-9', state: 'APPROVED' });
+  });
+});
+
+describe('ARRIVAL ORDER DOES NOT MATTER (events from different topics, dead-letter replays)', () => {
+  const heldAmount = (id: string) => heldWithAmount(id);
+  const soldWithAmount = (id: string) =>
+    buildEnvelope({
+      eventType: 'seats.sold',
+      correlationId: id,
+      producer: 'seat-inventory',
+      payload: {
+        bookingId: id,
+        eventId: 'neon-nights',
+        seatIds: ['C6', 'C7'],
+        amountMinor: 360000n,
+        currency: 'INR',
+      },
+    });
+
+  const endState = async (id: string) => (await getBooking(pool, id)).state;
+
+  it('seats.sold before seats.held still ends CONFIRMED, and the late seats.held only fills in the hold', async () => {
+    const b = await newBooking();
+    await onSeatsSold(pool, soldWithAmount(b.id));
+    expect(await endState(b.id)).toBe('CONFIRMED');
+    await onSeatsHeld(pool, heldAmount(b.id)); // arrives last
+    const after = await getBooking(pool, b.id);
+    expect(after.state).toBe('CONFIRMED');
+    expect(after.holdExpiresAt).toBe(new Date(1_700_000_600_000).toISOString());
+    const confirmed = await outboxOf(b.id, 'booking.confirmed');
+    expect(confirmed).toHaveLength(1);
+    if (confirmed[0]!.payload.case !== 'bookingConfirmed') throw new Error('wrong payload');
+    expect(confirmed[0]!.payload.value).toMatchObject({ amountMinor: 360000n, currency: 'INR' });
+  });
+
+  it('seats.released (hold expired) before seats.held still ends CANCELLED and is not resurrected', async () => {
+    const b = await newBooking();
+    await onSeatsReleased(pool, released(b.id, 'hold_expired'));
+    expect(await endState(b.id)).toBe('CANCELLED');
+    await onSeatsHeld(pool, heldAmount(b.id));
+    expect(await endState(b.id)).toBe('CANCELLED');
+    expect(await outboxOf(b.id, 'booking.cancelled')).toHaveLength(1);
+  });
+
+  it('payment.succeeded before seats.held records the payment, and seats.sold then confirms', async () => {
+    const b = await newBooking();
+    await onPaymentSucceeded(pool, paid(b.id));
+    expect(await endState(b.id)).toBe('PAID');
+    await onSeatsHeld(pool, heldAmount(b.id));
+    expect(await endState(b.id)).toBe('PAID');
+    await onSeatsSold(pool, soldWithAmount(b.id));
+    expect(await endState(b.id)).toBe('CONFIRMED');
+  });
+
+  it('every ordering of {held, paid, sold} ends CONFIRMED, exactly one booking.confirmed', async () => {
+    const orders = [
+      ['held', 'paid', 'sold'],
+      ['held', 'sold', 'paid'],
+      ['paid', 'held', 'sold'],
+      ['paid', 'sold', 'held'],
+      ['sold', 'held', 'paid'],
+      ['sold', 'paid', 'held'],
+    ] as const;
+    for (const order of orders) {
+      const b = await newBooking();
+      for (const step of order) {
+        if (step === 'held') await onSeatsHeld(pool, heldAmount(b.id));
+        if (step === 'paid') await onPaymentSucceeded(pool, paid(b.id));
+        if (step === 'sold') await onSeatsSold(pool, soldWithAmount(b.id));
+      }
+      expect({ order, state: await endState(b.id) }).toEqual({ order, state: 'CONFIRMED' });
+      expect(await outboxOf(b.id, 'booking.confirmed')).toHaveLength(1);
+      expect(await outboxOf(b.id, 'booking.cancelled')).toHaveLength(0);
+    }
+  });
+
+  it('every ordering of {held, paid, released(expired)} ends CANCELLED, never confirmed', async () => {
+    const orders = [
+      ['held', 'paid', 'rel'],
+      ['held', 'rel', 'paid'],
+      ['paid', 'held', 'rel'],
+      ['paid', 'rel', 'held'],
+      ['rel', 'held', 'paid'],
+      ['rel', 'paid', 'held'],
+    ] as const;
+    for (const order of orders) {
+      const b = await newBooking();
+      for (const step of order) {
+        if (step === 'held') await onSeatsHeld(pool, heldAmount(b.id));
+        if (step === 'paid') await onPaymentSucceeded(pool, paid(b.id));
+        if (step === 'rel') await onSeatsReleased(pool, released(b.id, 'hold_expired'));
+      }
+      expect({ order, state: await endState(b.id) }).toEqual({ order, state: 'CANCELLED' });
+      expect(await outboxOf(b.id, 'booking.cancelled')).toHaveLength(1);
+      expect(await outboxOf(b.id, 'booking.confirmed')).toHaveLength(0);
+    }
+  });
+
+  it('a payment_failed release cancels a booking even if seats.held was not seen yet', async () => {
+    const b = await newBooking();
+    await onSeatsReleased(pool, released(b.id, 'payment_failed'));
+    expect(await endState(b.id)).toBe('CANCELLED');
   });
 });

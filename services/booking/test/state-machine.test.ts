@@ -19,9 +19,9 @@ describe('booking state machine', () => {
     expect(canTransition('HELD', 'CONFIRMED')).toBe(true);
   });
 
-  it('allows HELD -> CANCELLED (payment failed) but never cancels a paid or confirmed booking', () => {
+  it('allows HELD -> CANCELLED (payment failed) and PAID -> CANCELLED (expired hold), but never cancels a confirmed booking', () => {
     expect(canTransition('HELD', 'CANCELLED')).toBe(true);
-    expect(canTransition('PAID', 'CANCELLED')).toBe(false);
+    expect(canTransition('PAID', 'CANCELLED')).toBe(true); // only for an expired hold; see the handler
     expect(canTransition('CONFIRMED', 'CANCELLED')).toBe(false);
   });
 
@@ -36,11 +36,14 @@ describe('booking state machine', () => {
     const states = Object.keys(TRANSITIONS) as BookingState[];
     const legal = new Set([
       'REQUESTED>HELD',
+      'REQUESTED>PAID',
+      'REQUESTED>CONFIRMED',
       'REQUESTED>CANCELLED',
       'HELD>PAID',
       'HELD>CONFIRMED',
       'HELD>CANCELLED',
       'PAID>CONFIRMED',
+      'PAID>CANCELLED',
     ]);
     for (const from of states) {
       for (const to of states) {

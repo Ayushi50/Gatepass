@@ -683,6 +683,51 @@ importers:
         specifier: ^7.3.2
         version: 7.3.2(supports-color@8.1.1)
 
+  tests/chaos:
+    devDependencies:
+      '@gatepass/analytics':
+        specifier: workspace:*
+        version: link:../../services/analytics
+      '@gatepass/booking':
+        specifier: workspace:*
+        version: link:../../services/booking
+      '@gatepass/catalog':
+        specifier: workspace:*
+        version: link:../../services/catalog
+      '@gatepass/db':
+        specifier: workspace:*
+        version: link:../../libs/db
+      '@gatepass/events':
+        specifier: workspace:*
+        version: link:../../libs/events
+      '@gatepass/messaging':
+        specifier: workspace:*
+        version: link:../../libs/messaging
+      '@gatepass/notification':
+        specifier: workspace:*
+        version: link:../../services/notification
+      '@gatepass/outbox':
+        specifier: workspace:*
+        version: link:../../libs/outbox
+      '@gatepass/payment':
+        specifier: workspace:*
+        version: link:../../services/payment
+      '@gatepass/seat-inventory':
+        specifier: workspace:*
+        version: link:../../services/seat-inventory
+      '@gatepass/testing':
+        specifier: workspace:*
+        version: link:../../libs/testing
+      '@gatepass/ticket':
+        specifier: workspace:*
+        version: link:../../services/ticket
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
+      pg:
+        specifier: ^8.23.1
+        version: 8.23.1
+
   tests/saga:
     devDependencies:
       '@gatepass/analytics':

@@ -151,7 +151,8 @@ export async function transitionBooking(
     `UPDATE bookings
         SET state = $2, hold_expires_at = COALESCE($3, hold_expires_at),
             cancel_reason = COALESCE($4, cancel_reason),
-            amount_minor = COALESCE($5, amount_minor), currency = COALESCE($6, currency),
+            -- the first amount we learn wins; a later event cannot overwrite it (or blank it)
+            amount_minor = COALESCE(amount_minor, $5), currency = COALESCE(NULLIF(currency, ''), NULLIF($6, '')),
             version = version + 1, updated_at = now()
       WHERE id = $1`,
     [

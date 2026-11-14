@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+import type { Queryable } from '@gatepass/outbox';
 import { buildEnvelope, type EventEnvelope } from '@gatepass/events';
 import { appendToOutbox, processOnce } from '@gatepass/outbox';
 import { PRODUCER, getBooking, transitionBooking } from './bookings';
@@ -15,17 +16,47 @@ export const CONSUMED_TOPICS = [
   'refund.completed',
 ];
 
+/**
+ * Events from different topics arrive in no fixed order (a message can be dead-lettered and
+ * replayed hours later). So every handler here applies its fact whenever it arrives, and the
+ * state machine makes the result the same in ANY order: facts that end a booking (sold, released)
+ * win over facts that only advance it (held, paid), and a late fact never undoes an earlier one.
+ */
+
+/** Fills in what seats.held knows, whatever state the booking is in (it may have raced ahead). */
+async function fillHold(
+  tx: Queryable,
+  bookingId: string,
+  holdExpiresAt: Date,
+  amountMinor: number,
+  currency: string,
+): Promise<void> {
+  await tx.query(
+    `UPDATE bookings
+        SET hold_expires_at = COALESCE(hold_expires_at, $2),
+            amount_minor = COALESCE(amount_minor, $3),
+            currency = COALESCE(NULLIF(currency, ''), $4),
+            updated_at = now()
+      WHERE id = $1`,
+    [bookingId, holdExpiresAt, amountMinor, currency],
+  );
+}
+
 /** seats.held -> REQUESTED becomes HELD, remembering the server-computed hold expiry. */
 export async function onSeatsHeld(pool: Pool, env: EventEnvelope): Promise<void> {
   if (env.payload.case !== 'seatsHeld') return;
   const p = env.payload.value;
   await processOnce(pool, CONSUMER_GROUP, env, async (tx) => {
+    const holdExpiresAt = new Date(Number(p.holdExpiresAtMs));
     await transitionBooking(tx, p.bookingId, 'HELD', {
       causeEventId: env.eventId,
-      holdExpiresAt: new Date(Number(p.holdExpiresAtMs)),
+      holdExpiresAt,
       amountMinor: Number(p.amountMinor),
       currency: p.currency,
     });
+    // If the booking had already moved past REQUESTED (this event came late), the transition above
+    // is ignored; still record the hold details.
+    await fillHold(tx, p.bookingId, holdExpiresAt, Number(p.amountMinor), p.currency);
   });
 }
 
@@ -59,7 +90,11 @@ export async function onPaymentSucceeded(pool: Pool, env: EventEnvelope): Promis
   if (env.payload.case !== 'paymentSucceeded') return;
   const p = env.payload.value;
   await processOnce(pool, CONSUMER_GROUP, env, async (tx) => {
-    await transitionBooking(tx, p.bookingId, 'PAID', { causeEventId: env.eventId });
+    await transitionBooking(tx, p.bookingId, 'PAID', {
+      causeEventId: env.eventId,
+      amountMinor: Number(p.amountMinor),
+      currency: p.currency,
+    });
   });
 }
 
@@ -70,6 +105,8 @@ export async function onSeatsSold(pool: Pool, env: EventEnvelope): Promise<void>
   await processOnce(pool, CONSUMER_GROUP, env, async (tx) => {
     const outcome = await transitionBooking(tx, p.bookingId, 'CONFIRMED', {
       causeEventId: env.eventId,
+      amountMinor: Number(p.amountMinor),
+      currency: p.currency,
     });
     if (outcome !== 'applied') return;
     const b = await getBooking(tx, p.bookingId);
@@ -85,8 +122,8 @@ export async function onSeatsSold(pool: Pool, env: EventEnvelope): Promise<void>
           eventId: b.eventId,
           userId: b.userId,
           seatIds: b.seatIds,
-          amountMinor: BigInt(b.amountMinor ?? 0),
-          currency: b.currency ?? '',
+          amountMinor: BigInt(b.amountMinor ?? Number(p.amountMinor)),
+          currency: b.currency || p.currency,
         },
       }),
       b.id,
@@ -99,9 +136,13 @@ export async function onSeatsReleased(pool: Pool, env: EventEnvelope): Promise<v
   if (env.payload.case !== 'seatsReleased') return;
   const p = env.payload.value;
   await processOnce(pool, CONSUMER_GROUP, env, async (tx) => {
+    // A release only cancels a PAID booking when the hold expired: then the seats were never sold
+    // (a sale locks the seats a sweep needs, so both cannot happen) and the payment is refunded.
+    // Any other release says nothing about a booking that is already paid.
     const outcome = await transitionBooking(tx, p.bookingId, 'CANCELLED', {
       causeEventId: env.eventId,
       cancelReason: p.reason,
+      onlyFrom: p.reason === 'hold_expired' ? ['REQUESTED', 'HELD', 'PAID'] : ['REQUESTED', 'HELD'],
     });
     if (outcome !== 'applied') return;
     await appendToOutbox(

@@ -96,9 +96,14 @@ export async function onBookingRequested(
 async function lockHeldSeats(
   tx: Queryable,
   bookingId: string,
-): Promise<{ event_id: string; seat_id: string }[]> {
-  const { rows } = await tx.query<{ event_id: string; seat_id: string }>(
-    `SELECT event_id, seat_id FROM seats
+): Promise<{ event_id: string; seat_id: string; price_minor: string; currency: string }[]> {
+  const { rows } = await tx.query<{
+    event_id: string;
+    seat_id: string;
+    price_minor: string;
+    currency: string;
+  }>(
+    `SELECT event_id, seat_id, price_minor, currency FROM seats
       WHERE booking_id = $1 AND state = 'held' ORDER BY seat_id FOR UPDATE`,
     [bookingId],
   );
@@ -134,7 +139,13 @@ export async function onPaymentSucceeded(pool: Pool, env: EventEnvelope): Promis
           correlationId: env.correlationId,
           causationId: env.eventId,
           producer: PRODUCER,
-          payload: { bookingId, eventId, seatIds: locked.map((r) => r.seat_id) },
+          payload: {
+            bookingId,
+            eventId,
+            seatIds: locked.map((r) => r.seat_id),
+            amountMinor: BigInt(locked.reduce((n, r) => n + Number(r.price_minor), 0)),
+            currency: locked[0]!.currency,
+          },
         }),
         eventId,
       );
