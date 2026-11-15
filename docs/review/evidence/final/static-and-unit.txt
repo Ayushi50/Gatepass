@@ -1,0 +1,4 @@
+All matched files use Prettier code style!
+$ buf generate
+Tests:       388 passed, 388 total
+      Tests  34 passed (34)

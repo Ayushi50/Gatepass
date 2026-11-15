@@ -1,0 +1,8 @@
+  ✓  1 review/review.spec.ts:56:1 › landing page and the show list: filters work and the sold-out show cannot be opened (759ms)
+  ✓  2 review/review.spec.ts:77:1 › seat map: at most six seats, a seventh click is ignored; netbanking pays; ticket has a QR (3.5s)
+  ✓  3 review/review.spec.ts:108:1 › card pays; a declined card shows the failure state (4.8s)
+  ✓  4 review/review.spec.ts:132:1 › an unpaid hold runs out on screen, payment is switched off, and the seat goes back on sale (29.3s)
+  ✓  5 review/review.spec.ts:152:1 › door: valid, already used and invalid; organizer dashboard; waiting room (8.7s)
+  ✓  6 review/review.spec.ts:203:1 › phone width (390px): every page fits without sideways scrolling (6.5s)
+  ✓  7 review/review.spec.ts:231:1 › no page logged a console error during the whole run (0ms)
+  7 passed (54.0s)

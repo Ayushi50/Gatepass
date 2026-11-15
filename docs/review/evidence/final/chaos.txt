@@ -1,0 +1,1 @@
+ALL INVARIANTS HOLD: no double sale, every booking final, money adds up, nothing unsent.

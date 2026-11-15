@@ -1,0 +1,2 @@
+KNOWN OPEN  an internal service accepts a caller who simply claims a user id  [200]
+58 of 58 probes passed; 0 holes
