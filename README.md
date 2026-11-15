@@ -157,6 +157,44 @@ k6 ramps to 50 buyers who all want seats in one 1,000-seat show. Each picks one 
 
 Duplicate rate = (seats held by two confirmed bookings + bookings with two successful charges) ÷ confirmed bookings. The run also checked 733 charges = 733 confirmed bookings and 968 tickets = 968 sold seats. See [ADR 0017](docs/adr/0017-observability-and-load.md).
 
+## What happens when X fails
+
+Each row is backed by a test or run named in the last column.
+
+| Failure                                               | What happens                                                                                                                                         | Proof                                                                                       |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Kafka is down while buyers book                       | The booking is accepted and the event waits in the service's outbox; when Kafka returns the saga resumes and the seats end up held. Nothing is lost. | `loses nothing across a broker outage` (jest); `pnpm review:probe` kills the broker mid-run |
+| A service is killed mid-booking                       | Its consumer group re-reads from the last committed offset; the inbox ignores anything already applied.                                              | `pnpm chaos:real` (SIGKILL on services, all invariants hold)                                |
+| The same message is delivered twice                   | The inbox table makes the second delivery a no-op, and counters are only moved after a first delivery commits.                                       | `does not run the handler twice under concurrent duplicates`                                |
+| A payment webhook arrives twice, late or out of order | One charge only; a final payment state never changes.                                                                                                | `DUPLICATE under concurrency`, `LATE / OUT OF ORDER` (payments tests)                       |
+| The buyer double-clicks Pay                           | The `Idempotency-Key` makes it one payment.                                                                                                          | `20 concurrent identical requests produce exactly one payment`                              |
+| The card is declined                                  | The booking is cancelled and the seats go back on sale, live on every open seat map.                                                                 | browser e2e and `pnpm review`                                                               |
+| The hold runs out                                     | The seats are released after the grace period and the page switches Pay off. If a payment lands just after, it is refunded automatically.            | ADR 0012; `150 randomised interleavings`                                                    |
+| Two people want the same seat                         | Exactly one wins, the other is told the seat is taken.                                                                                               | `1,000 concurrent buyers, 100 seats: exactly 100 succeed`; `pnpm loadtest`                  |
+| Two door gates scan one ticket                        | Exactly one admits.                                                                                                                                  | `TWO GATES AT ONCE: 50 simultaneous scans admit exactly one`                                |
+| A consumer keeps failing on one message               | Retried with backoff, then moved to `<group>.dlq`; `pnpm replay` sends it back once the cause is fixed.                                              | ADR 0005, 0015                                                                              |
+| Redis is down                                         | The gateway's rate limiter lets requests through (and logs it); the waiting room cannot admit new buyers.                                            | `fails open when Redis is unreachable`                                                      |
+| Someone floods the API                                | HTTP 429 with `Retry-After`: 300 calls a minute per user or address, 20 sign-ins a minute per address.                                               | `rate-limit.test.ts`; `pnpm review:probe`                                                   |
+
+## Trade-offs
+
+- **One outbox relay per database, with a lock**, instead of parallel relays: ordering per service is guaranteed, throughput is bounded by one publisher.
+- **Seat holds live in Postgres, not Redis**, so a hold and its sale are one transaction (ADR 0007); the price is more load on the seat database during a rush.
+- **Orchestration, not choreography**, for the booking saga (ADR 0006): one place to read the state, one service that knows the whole flow.
+- **At-least-once delivery with idempotent consumers**, not exactly-once transactions: simpler to run, and the duplicates are tested for.
+- **Fixed-window rate limiting**: simple and shared across gateway instances through Redis, but a client can briefly send twice the limit across a window boundary.
+
+## Known limitations
+
+- **No Docker Compose, Redpanda or schema registry.** Docker was removed at the owner's request; the system runs as local processes against Apache Kafka, with Protobuf schemas checked by `buf` in CI. BUILD_PROMPT.md asked for Compose, Redpanda, a registry and Testcontainers; those are not met.
+- **Internal services trust the gateway.** Booking, payment and the rest accept a caller-supplied user id on their own ports. They must never be reachable from outside the gateway's network (finding F-04 in `docs/review/02-findings.md`).
+- **No readiness probe.** `/health` says the process is alive, not that its database and Kafka are reachable.
+- **Demo sign-in only**, no real accounts; the token is kept in `localStorage`.
+- **`next` 15.5.29 pulls in a `postcss` with known advisories** (build-time CSS processing, no user CSS is processed at runtime). Upgrade `next` when a fixed release is chosen.
+- **No LICENSE file**: the owner has not chosen one.
+- **Load numbers are from one laptop** with a fake payment provider (see Load test).
+- The review in `docs/review` lists everything else it found and what was and was not fixed.
+
 ## Resilience tools
 
 ```bash
