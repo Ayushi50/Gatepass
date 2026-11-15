@@ -13,3 +13,7 @@ The overnight review (docs/review) had to decide a few things without the owner.
 ## Trade-offs
 
 Decision 2 breaks "visually identical" in the narrow literal sense for two buttons, in exchange for a checkout that does not offer a dead Pay button. It is one CSS rule and easy to reverse.
+
+## Addendum: Node 22 is the minimum
+
+CI ran Node 20 and failed at `pnpm test` because the web test tools (vitest 5, jsdom 31) need Node 22.12 or newer (`docs/review/evidence/ci-cause.txt`). Every backend dependency also runs on 22, so the repository now requires Node 22.12+ (CI, `engines`, README, `.nvmrc`). This supersedes the "Node 20 is the target" sentence in ADR 0001. Not verified on GitHub until pushed; this branch has not been pushed.

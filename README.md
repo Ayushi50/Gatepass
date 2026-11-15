@@ -82,7 +82,7 @@ pnpm schema:lint # buf lint
 
 ## Run everything (one command)
 
-You need Node 20+, pnpm, Java (for Kafka) and an extracted [Apache Kafka](https://kafka.apache.org/downloads) (3.9 works; it runs without ZooKeeper). No Docker.
+You need Node 22.12+, pnpm, Java (for Kafka) and an extracted [Apache Kafka](https://kafka.apache.org/downloads) (3.9 works; it runs without ZooKeeper). No Docker.
 
 ```bash
 pnpm install
