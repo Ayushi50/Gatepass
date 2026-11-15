@@ -39,6 +39,22 @@ async function main(): Promise<void> {
       '[gateway] DEMO SIGN-IN IS ON (ENABLE_DEV_LOGIN=true): anyone can get a token. Never use this in production.',
     );
 
+  const list = (v?: string) =>
+    (v ?? '')
+      .split(',')
+      .map((e) => e.trim())
+      .filter(Boolean);
+  const google = process.env.GOOGLE_CLIENT_ID
+    ? {
+        clientId: process.env.GOOGLE_CLIENT_ID,
+        clientSecret: requireEnv('GOOGLE_CLIENT_SECRET'),
+        redirectUri: requireEnv('GOOGLE_REDIRECT_URI'),
+        organizerEmails: list(process.env.ORGANIZER_EMAILS),
+        doorStaffEmails: list(process.env.DOOR_STAFF_EMAILS),
+      }
+    : undefined;
+  if (google) console.log('[gateway] Google sign-in is on');
+
   const hub = new SeatStreamHub();
   const kafka = createKafka(requireEnv('KAFKA_BROKERS').split(','), 'gateway');
   const bookingHub = new BookingStreamHub();
@@ -79,6 +95,7 @@ async function main(): Promise<void> {
       waitingRoom,
       jwtSecret: secret,
       devLogin,
+      google,
     }),
   );
   mountTelemetry(app, 'gateway');

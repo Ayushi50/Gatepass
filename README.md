@@ -189,7 +189,7 @@ Each row is backed by a test or run named in the last column.
 - **No Docker Compose, Redpanda or schema registry.** Docker was removed at the owner's request; the system runs as local processes against Apache Kafka, with Protobuf schemas checked by `buf` in CI. BUILD_PROMPT.md asked for Compose, Redpanda, a registry and Testcontainers; those are not met.
 - **Internal services trust the gateway.** Booking, payment and the rest accept a caller-supplied user id on their own ports. They must never be reachable from outside the gateway's network (finding F-04 in `docs/review/02-findings.md`).
 - **No readiness probe.** `/health` says the process is alive, not that its database and Kafka are reachable.
-- **Demo sign-in only**, no real accounts; the token is kept in `localStorage`.
+- **Sign-in:** Google sign-in exists (see Sign-in) but needs your own Google OAuth client; the demo role picker is only on with `ENABLE_DEV_LOGIN=true`. The token is kept in `localStorage`. All organizers share the one organizer id the seeded shows belong to, and there are no per-user records yet.
 - **`next` 15.5.29 pulls in a `postcss` with known advisories** (build-time CSS processing, no user CSS is processed at runtime). Upgrade `next` when a fixed release is chosen.
 - **No LICENSE file**: the owner has not chosen one.
 - **Load numbers are from one laptop** with a fake payment provider (see Load test).
@@ -211,6 +211,10 @@ CHAOS_SEED=42   pnpm exec jest --selectProjects unit tests/chaos      # replay o
 ```
 
 Tuning: `HOLD_SWEEP_INTERVAL_MS` (1000), `HOLD_GRACE_MS` (60000), `WAITING_ROOM_ADMIT_PER_SECOND` (5), `WAITING_ROOM_ADMISSION_TTL_SECONDS` (300). The gateway needs `REDIS_URL`.
+
+## Sign-in
+
+`ENABLE_DEV_LOGIN=true` shows the demo role picker (never in production). For real sign-in set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `GOOGLE_REDIRECT_URI` (see `.env.example`; register the redirect URI with Google exactly, on the web app's origin). The gateway runs the authorization-code flow: a signed `state` bound to an HttpOnly cookie, a nonce, and checks on the ID token's issuer, audience, expiry and verified email. It then issues the same Gatepass token as before, so the other services are unchanged. Emails in `ORGANIZER_EMAILS` / `DOOR_STAFF_EMAILS` get those roles; everyone else is an attendee. Tests use a fake Google server (`services/gateway/test/google-auth.test.ts`); real Google sign-in is not exercised until you supply credentials.
 
 ## Payments (test mode only)
 

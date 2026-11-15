@@ -96,7 +96,7 @@ export function rateLimitMiddleware(limiter: RateLimiter, options: RateLimitOpti
     const path = (req.path ?? req.url ?? '').split('?')[0]!;
     if (path === '/health' || path.startsWith('/metrics')) return next();
     const address = req.ip ?? req.socket?.remoteAddress ?? 'unknown';
-    const signIn = path === '/api/dev-login';
+    const signIn = path === '/api/dev-login' || path.startsWith('/api/auth/google/');
     const user = signIn ? undefined : claimedUser(req.headers.authorization);
     const key = signIn ? `signin:${address}` : user ? `user:${user}` : `ip:${address}`;
     const result = await limiter.hit(key, signIn ? signIns : perMinute, 60);
