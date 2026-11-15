@@ -220,7 +220,7 @@ const scenarios: Scenario[] = [
 ];
 
 const SIZES = {
-  desktop: { width: 1280, height: 900 },
+  desktop: { width: Number(process.env.VISUAL_DESKTOP_WIDTH ?? 1280), height: 900 },
   mobile: { width: 390, height: 844 },
 } as const;
 const MIME: Record<string, string> = {

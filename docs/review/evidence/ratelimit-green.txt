@@ -1,0 +1,7 @@
+    ✓ lets a client through up to the limit, then refuses until the window ends (5 ms)
+    ✓ counts each client on its own (1 ms)
+    ✓ under 200 simultaneous hits admits exactly the limit (5 ms)
+    ✓ fails open when Redis is unreachable: the site stays up, the failure is reported (1 ms)
+    ✓ answers 429 with Retry-After once a client is over the limit, and never limits /health or /metrics (2 ms)
+    ✓ sign-in has its own, tighter limit, and a signed-in user is counted by user, not by address (1 ms)
+Tests:       6 passed, 6 total

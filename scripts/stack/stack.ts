@@ -45,6 +45,8 @@ export interface StackOptions {
   holdTtlMs?: number;
   /** Extra time after expiry before an unpaid hold is released. Default 60 seconds. */
   holdGraceMs?: number;
+  /** Gateway rate limit per client per minute. Default 300 (the load test raises it). */
+  rateLimitPerMinute?: number;
   /** How soon the FAKE payment provider reports a payment as done, in ms. Default 800. */
   autoWebhookMs?: number;
   /** Waiting-room admissions per second. Default 5. */
@@ -186,6 +188,12 @@ export async function startStack(opts: StackOptions = {}): Promise<Stack> {
           JWT_SECRET,
           REDIS_URL: redis.url,
           ENABLE_DEV_LOGIN: 'true',
+          ...(opts.rateLimitPerMinute === undefined
+            ? {}
+            : {
+                RATE_LIMIT_PER_MINUTE: String(opts.rateLimitPerMinute),
+                RATE_LIMIT_SIGNINS_PER_MINUTE: String(opts.rateLimitPerMinute),
+              }),
           WAITING_ROOM_ADMIT_PER_SECOND: String(opts.admitPerSecond ?? 5),
           CATALOG_URL: `http://127.0.0.1:${PORTS.catalog}`,
           SEAT_INVENTORY_URL: `http://127.0.0.1:${PORTS.inventory}`,

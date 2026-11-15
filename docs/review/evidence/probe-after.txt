@@ -1,0 +1,84 @@
+$ ts-node --transpile-only scripts/stack/review-probe.ts
+(node:68819) TimeoutNegativeWarning: -1794722553831 is a negative number.
+Timeout duration was set to 1.
+(Use `node --trace-warnings ...` to show where the warning was created)
+infrastructure is up (Kafka, Postgres, Redis)
+starting 8 services...
+services are up
+five demo shows published; selling out Jazz on the Roof...
+Jazz on the Roof is sold out
+
+-- no token, wrong role
+PASS  POST /api/bookings without a token is refused  [401]
+PASS  POST /api/bookings with the wrong role is refused  [403]
+PASS  GET /api/bookings/:id without a token is refused  [401]
+PASS  GET /api/bookings/:id with the wrong role is refused  [403]
+PASS  POST /api/bookings/:id/pay without a token is refused  [401]
+PASS  POST /api/bookings/:id/pay with the wrong role is refused  [403]
+PASS  GET /api/tickets without a token is refused  [401]
+PASS  GET /api/tickets with the wrong role is refused  [403]
+PASS  POST /api/tickets/01a1ddcc-f737-7dd8-a9fe-990c48884724/refund without a token is refused  [401]
+PASS  POST /api/tickets/01a1ddcc-f737-7dd8-a9fe-990c48884724/refund with the wrong role is refused  [403]
+PASS  POST /api/checkin without a token is refused  [401]
+PASS  POST /api/checkin with the wrong role is refused  [403]
+PASS  GET /api/organizer/events/laugh-lab/summary without a token is refused  [401]
+PASS  GET /api/organizer/events/laugh-lab/summary with the wrong role is refused  [403]
+PASS  GET /api/organizer/events/laugh-lab/refunds without a token is refused  [401]
+PASS  GET /api/organizer/events/laugh-lab/refunds with the wrong role is refused  [403]
+PASS  POST /api/refunds/some-id/approve without a token is refused  [401]
+PASS  POST /api/refunds/some-id/approve with the wrong role is refused  [403]
+PASS  stream /api/bookings/:id/stream without a token is refused  [401]
+PASS  stream /api/organizer/events/laugh-lab/activity without a token is refused  [401]
+
+-- forged and stale tokens
+PASS  token signed with another secret is refused  [401]
+PASS  token alg none is refused  [401]
+PASS  token expired is refused  [401]
+PASS  token payload swapped to organizer is refused  [401]
+
+-- one user reaching for another's things
+PASS  reading someone else's booking  [403]
+PASS  paying someone else's booking  [403]
+PASS  watching someone else's booking stream  [403]
+PASS  listing tickets shows only one's own  [0 tickets]
+PASS  refunding someone else's ticket  [404]
+PASS  another organizer reading /api/organizer/events/laugh-lab/summary  [403]
+PASS  another organizer reading /api/organizer/events/laugh-lab/refunds  [403]
+PASS  another organizer watching the activity stream  [403]
+
+-- bad input
+PASS  booking with seven seats  [400]
+PASS  booking with no seats  [400]
+PASS  booking with the same seat twice  [400]
+PASS  booking with seatIds not a list  [400]
+PASS  booking with seat ids that are objects  [400]
+PASS  booking with no event  [400]
+PASS  booking with an SQL fragment as the event  [404]
+PASS  booking with a 5,000-character seat id  [201 then CANCELLED]
+PASS  malformed JSON body  [400]
+PASS  a 2 MB body is refused  [413]
+PASS  paying without an Idempotency-Key  [400]
+PASS  errors do not leak stack traces or SQL  [404 {"message":"booking not-a-real-id not found","error":"Not Found","statusCode":40]
+
+-- webhook, internal ports, CORS, health
+PASS  a webhook with a forged signature is refused  [400]
+KNOWN OPEN  an internal service accepts a caller who simply claims a user id  [200]
+PASS  no CORS permission for a foreign origin  [none]
+PASS  gateway answers /health  [200 {"status":"ok","service":"gateway"}]
+PASS  catalog answers /health  [200 {"status":"ok","service":"catalog"}]
+PASS  inventory answers /health  [200 {"status":"ok","service":"seat-inventory"}]
+PASS  booking answers /health  [200 {"status":"ok","service":"booking"}]
+PASS  payment answers /health  [200 {"status":"ok","service":"payment"}]
+PASS  ticket answers /health  [200 {"status":"ok","service":"ticket"}]
+PASS  analytics answers /health  [200 {"status":"ok","service":"analytics"}]
+
+-- request flood
+PASS  400 sign-ins at once from one client are rate limited  [314 of 400 answered 429]
+PASS  450 API calls at once from one user are rate limited  [92 of 450 answered 429]
+
+-- Kafka restart with bookings in flight
+PASS  bookings are still accepted while Kafka is down  [201,201,201]
+PASS  after Kafka returns every one of them is held: nothing lost  [HELD,HELD,HELD]
+PASS  a full purchase works after the restart  [CONFIRMED]
+
+58 of 58 probes passed; 0 holes

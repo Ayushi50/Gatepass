@@ -1,0 +1,10 @@
+└─────────────────────┴───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+5 vulnerabilities found
+Severity: 3 moderate | 2 high
+   1 │ high                │ PostCSS: Arbitrary file read and information disclosure via attacker-controlled sourceMappingURL in CSS comments │	│ Package             │ postcss                                                                                                          │
+   1 │ high                │ PostCSS: Path Traversal in Previous Source Map Auto-Loading (sourceMappingURL) leads to Arbitrary .map File Disclosure │	│ Package             │ postcss                                                                                                                │
+   1 │ low                 │ deepmerge mergeObject() allows prototype poisoning of returned objects │	│ Package             │ deepmerge                                                              │
+   1 │ moderate            │ PostCSS has XSS via Unescaped </style> in its CSS Stringify Output │	│ Package             │ postcss                                                            │
+   1 │ moderate            │ PostCSS: incomplete fix of GHSA-6g55-p6wh-862q — attacker-controlled sourceMappingURL reads arbitrary .map files when `from` is unset │	│ Package             │ postcss                                                                                                                               │
+   1 │ moderate            │ minimatch has potential denial of service via globparts amplification                                                                                      │	│ Package             │ minimatch                                                                                                                                                  │
+   1 │ moderate            │ uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided │	│ Package             │ uuid                                                               │

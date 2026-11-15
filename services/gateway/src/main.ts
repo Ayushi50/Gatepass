@@ -12,6 +12,7 @@ import {
   HttpTicketClient,
 } from './clients/clients';
 import { GatewayModule } from './gateway.module';
+import { RateLimiter, rateLimitMiddleware } from './rate-limit/rate-limit';
 import { WaitingRoom, WaitingRoomAdmitter } from './waiting-room/waiting-room';
 import {
   ActivityStreamHub,
@@ -81,6 +82,17 @@ async function main(): Promise<void> {
     }),
   );
   mountTelemetry(app, 'gateway');
+  app.use(
+    rateLimitMiddleware(
+      new RateLimiter(redis, {
+        onError: (e) => console.error('[gateway] rate limiter:', (e as Error).message),
+      }),
+      {
+        perMinute: Number(process.env.RATE_LIMIT_PER_MINUTE ?? 300),
+        signInsPerMinute: Number(process.env.RATE_LIMIT_SIGNINS_PER_MINUTE ?? 20),
+      },
+    ),
+  );
   app.enableShutdownHooks();
   await app.listen(Number(process.env.PORT ?? 3000));
   console.log(`[gateway] listening on ${process.env.PORT ?? 3000}`);

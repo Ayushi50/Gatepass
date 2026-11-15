@@ -1,0 +1,186 @@
+[
+  {
+    "width": 1440,
+    "path": "/",
+    "lang": "en",
+    "title": "Gatepass",
+    "h1": 1,
+    "unnamed": [],
+    "small": [
+      "45x21 <a href=\"/events\">Shows</a>",
+      "87x21 <a href=\"#how\">How it works</a>",
+      "82x21 <a href=\"/organizer\">Host a show</a>",
+      "107x43 <a class=\"outline\" href=\"/tickets\">My tickets</a>",
+      "118x24 <a class=\"link\" href=\"#how\">How it works →</a>"
+    ],
+    "smallCount": 5,
+    "infiniteAnimationsUnderReducedMotion": 0,
+    "imgsNoAlt": 0,
+    "firstTabFocus": "A outline=solid 2px shadow=none"
+  },
+  {
+    "width": 1440,
+    "path": "/events",
+    "lang": "en",
+    "title": "Gatepass",
+    "h1": 1,
+    "unnamed": [],
+    "small": [
+      "45x21 <a aria-current=\"page\" href=\"/events\">Shows</a>",
+      "87x21 <a href=\"/#how\">How it works</a>",
+      "82x21 <a href=\"/organizer\">Host a show</a>",
+      "107x43 <a class=\"outline\" href=\"/tickets\">My tickets</a>"
+    ],
+    "smallCount": 4,
+    "infiniteAnimationsUnderReducedMotion": 0,
+    "imgsNoAlt": 0,
+    "firstTabFocus": "A outline=solid 2px shadow=none"
+  },
+  {
+    "width": 1440,
+    "path": "/seats?event=laugh-lab",
+    "lang": "en",
+    "title": "Gatepass",
+    "h1": 1,
+    "unnamed": [],
+    "small": [
+      "45x21 <a aria-current=\"page\" href=\"/events\">Shows</a>",
+      "87x21 <a href=\"/#how\">How it works</a>",
+      "82x21 <a href=\"/organizer\">Host a show</a>",
+      "107x43 <a class=\"outline\" href=\"/tickets\">My tickets</a>"
+    ],
+    "smallCount": 4,
+    "infiniteAnimationsUnderReducedMotion": 0,
+    "imgsNoAlt": 0,
+    "firstTabFocus": "A outline=solid 2px shadow=none"
+  },
+  {
+    "width": 1440,
+    "path": "/tickets",
+    "lang": "en",
+    "title": "Gatepass",
+    "h1": 1,
+    "unnamed": [],
+    "small": [
+      "45x21 <a href=\"/events\">Shows</a>",
+      "87x21 <a href=\"/#how\">How it works</a>",
+      "82x21 <a href=\"/organizer\">Host a show</a>",
+      "107x43 <a class=\"outline\" aria-current=\"page\" href=\"/tickets\">My ti",
+      "86x19 <a href=\"/events\">Find a show</a>"
+    ],
+    "smallCount": 5,
+    "infiniteAnimationsUnderReducedMotion": 0,
+    "imgsNoAlt": 0,
+    "firstTabFocus": "A outline=solid 2px shadow=none"
+  },
+  {
+    "width": 1440,
+    "path": "/sign-in",
+    "lang": "en",
+    "title": "Gatepass",
+    "h1": 1,
+    "unnamed": [],
+    "small": [
+      "45x21 <a href=\"/events\">Shows</a>",
+      "87x21 <a href=\"/#how\">How it works</a>",
+      "82x21 <a href=\"/organizer\">Host a show</a>",
+      "107x43 <a class=\"outline\" href=\"/tickets\">My tickets</a>"
+    ],
+    "smallCount": 4,
+    "infiniteAnimationsUnderReducedMotion": 0,
+    "imgsNoAlt": 0,
+    "firstTabFocus": "A outline=solid 2px shadow=none"
+  },
+  {
+    "width": 390,
+    "path": "/",
+    "lang": "en",
+    "title": "Gatepass",
+    "h1": 1,
+    "unnamed": [],
+    "small": [
+      "45x21 <a href=\"/events\">Shows</a>",
+      "87x21 <a href=\"#how\">How it works</a>",
+      "82x21 <a href=\"/organizer\">Host a show</a>",
+      "107x43 <a class=\"outline\" href=\"/tickets\">My tickets</a>",
+      "118x24 <a class=\"link\" href=\"#how\">How it works →</a>"
+    ],
+    "smallCount": 5,
+    "infiniteAnimationsUnderReducedMotion": 0,
+    "imgsNoAlt": 0,
+    "firstTabFocus": "A outline=solid 2px shadow=none"
+  },
+  {
+    "width": 390,
+    "path": "/events",
+    "lang": "en",
+    "title": "Gatepass",
+    "h1": 1,
+    "unnamed": [],
+    "small": [
+      "45x21 <a aria-current=\"page\" href=\"/events\">Shows</a>",
+      "87x21 <a href=\"/#how\">How it works</a>",
+      "82x21 <a href=\"/organizer\">Host a show</a>",
+      "107x43 <a class=\"outline\" href=\"/tickets\">My tickets</a>"
+    ],
+    "smallCount": 4,
+    "infiniteAnimationsUnderReducedMotion": 0,
+    "imgsNoAlt": 0,
+    "firstTabFocus": "A outline=solid 2px shadow=none"
+  },
+  {
+    "width": 390,
+    "path": "/seats?event=laugh-lab",
+    "lang": "en",
+    "title": "Gatepass",
+    "h1": 1,
+    "unnamed": [],
+    "small": [
+      "45x21 <a aria-current=\"page\" href=\"/events\">Shows</a>",
+      "87x21 <a href=\"/#how\">How it works</a>",
+      "82x21 <a href=\"/organizer\">Host a show</a>",
+      "107x43 <a class=\"outline\" href=\"/tickets\">My tickets</a>"
+    ],
+    "smallCount": 4,
+    "infiniteAnimationsUnderReducedMotion": 0,
+    "imgsNoAlt": 0,
+    "firstTabFocus": "A outline=solid 2px shadow=none"
+  },
+  {
+    "width": 390,
+    "path": "/tickets",
+    "lang": "en",
+    "title": "Gatepass",
+    "h1": 1,
+    "unnamed": [],
+    "small": [
+      "45x21 <a href=\"/events\">Shows</a>",
+      "87x21 <a href=\"/#how\">How it works</a>",
+      "82x21 <a href=\"/organizer\">Host a show</a>",
+      "107x43 <a class=\"outline\" aria-current=\"page\" href=\"/tickets\">My ti",
+      "219x42 <a href=\"/events\">Find a show</a>"
+    ],
+    "smallCount": 5,
+    "infiniteAnimationsUnderReducedMotion": 0,
+    "imgsNoAlt": 0,
+    "firstTabFocus": "A outline=solid 2px shadow=none"
+  },
+  {
+    "width": 390,
+    "path": "/sign-in",
+    "lang": "en",
+    "title": "Gatepass",
+    "h1": 1,
+    "unnamed": [],
+    "small": [
+      "45x21 <a href=\"/events\">Shows</a>",
+      "87x21 <a href=\"/#how\">How it works</a>",
+      "82x21 <a href=\"/organizer\">Host a show</a>",
+      "107x43 <a class=\"outline\" href=\"/tickets\">My tickets</a>"
+    ],
+    "smallCount": 4,
+    "infiniteAnimationsUnderReducedMotion": 0,
+    "imgsNoAlt": 0,
+    "firstTabFocus": "A outline=solid 2px shadow=none"
+  }
+]
