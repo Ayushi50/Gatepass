@@ -142,20 +142,20 @@ k6 ramps to 50 buyers who all want seats in one 1,000-seat show. Each picks one 
 | ---------------------------------- | -------------------------------------------- |
 | Buyers at peak                     | 50                                           |
 | Run length                         | 60 s                                         |
-| Booking attempts                   | 4,602 (76.4 per second)                      |
-| Bookings confirmed                 | 733 (968 of 1,000 seats sold)                |
+| Booking attempts                   | 4,598 (76.1 per second)                      |
+| Bookings confirmed                 | 727 (960 of 1,000 seats sold)                |
 | Refused because the seat was taken | 3,869                                        |
-| HTTP requests                      | 31,719 (526 per second), 0.00% failed        |
-| HTTP latency p95                   | 3 ms                                         |
-| Request to seat decision p95       | 415 ms                                       |
+| HTTP requests                      | 31,556 (522 per second), 0.00% failed        |
+| HTTP latency p95                   | 4 ms                                         |
+| Request to seat decision p95       | 417 ms                                       |
 | Pay to confirmed p95               | 417 ms (includes the fake provider's 100 ms) |
-| Whole booking p95                  | 829 ms                                       |
+| Whole booking p95                  | 926 ms                                       |
 | Double-clicked payments sent       | 159                                          |
 | Seats sold twice                   | 0                                            |
 | Bookings charged twice             | 0                                            |
 | **Duplicate rate**                 | **0**                                        |
 
-Duplicate rate = (seats held by two confirmed bookings + bookings with two successful charges) ÷ confirmed bookings. The run also checked 733 charges = 733 confirmed bookings and 968 tickets = 968 sold seats. See [ADR 0017](docs/adr/0017-observability-and-load.md).
+Measured again on the final code of the review branch (earlier runs: 733 to 754 confirmed bookings, always duplicate rate 0; "refused" and "double-clicked" counts vary per run). Duplicate rate = (seats held by two confirmed bookings + bookings with two successful charges) ÷ confirmed bookings. The run also checked 727 charges = 727 confirmed bookings and 960 tickets = 960 sold seats. See [ADR 0017](docs/adr/0017-observability-and-load.md).
 
 ## What happens when X fails
 
