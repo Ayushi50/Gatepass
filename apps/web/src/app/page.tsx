@@ -53,6 +53,10 @@ export default function Home() {
           <h1>
             Find your seat <span className="italic accent">in the dark.</span>
           </h1>
+          <p className="lead">
+            The lights go down and your seat is already yours. Gatepass holds it for ten minutes
+            while you pay, so nobody takes it from under you.
+          </p>
           <div className="actions">
             <Link className="btn btn-amber" href="/events">
               Choose a show

@@ -97,16 +97,7 @@ const statusStream =
 const hideDesignReview = '#preview{display:none!important}.manual{display:none!important}';
 
 const scenarios: Scenario[] = [
-  {
-    name: 'index',
-    design: '/index.html',
-    next: '/',
-    mocks: [],
-    // the owner asked for the hero paragraph to be removed from the app (the design file is untouched)
-    setupDesign: async (p) => {
-      await p.evaluate(() => document.querySelector('.hero .lead')?.remove());
-    },
-  },
+  { name: 'index', design: '/index.html', next: '/', mocks: [] },
   { name: 'events', design: '/events.html', next: '/events', mocks: common },
   {
     name: 'seats',
