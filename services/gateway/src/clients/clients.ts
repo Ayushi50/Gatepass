@@ -56,6 +56,8 @@ export interface BookingView {
 export interface PaymentView {
   paymentId: string;
   status: 'created' | 'processing' | 'succeeded' | 'failed';
+  /** The provider's order id, which its checkout window needs (Razorpay). */
+  providerRef?: string;
 }
 
 export interface TicketView {
@@ -116,6 +118,14 @@ export interface PaymentClient {
     method: string;
     token: string;
     idempotencyKey: string;
+  }): Promise<PaymentView>;
+  /** The buyer finished in the provider's window; these are what it handed back. */
+  confirm(input: {
+    bookingId: string;
+    userId: string;
+    orderId: string;
+    paymentRef: string;
+    signature: string;
   }): Promise<PaymentView>;
 }
 export interface TicketClient {
@@ -228,6 +238,18 @@ export class HttpPaymentClient implements PaymentClient {
     idempotencyKey: string;
   }) {
     return call<PaymentView>(this.baseUrl, '/payments', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+  confirm(input: {
+    bookingId: string;
+    userId: string;
+    orderId: string;
+    paymentRef: string;
+    signature: string;
+  }) {
+    return call<PaymentView>(this.baseUrl, '/payments/confirm', {
       method: 'POST',
       body: JSON.stringify(input),
     });

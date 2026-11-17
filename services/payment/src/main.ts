@@ -25,7 +25,7 @@ function buildProvider(port: number): PaymentProvider {
     return new RazorpayTestProvider({
       keyId: requireEnv('RAZORPAY_KEY_ID'),
       keySecret: requireEnv('RAZORPAY_KEY_SECRET'),
-      webhookSecret: requireEnv('RAZORPAY_WEBHOOK_SECRET'),
+      webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET ?? randomBytes(32).toString('hex'), // unset: nothing can pass the signature check
     });
   }
   if (kind === 'stripe') {

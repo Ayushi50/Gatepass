@@ -131,6 +131,15 @@ export class RazorpayTestProvider implements PaymentProvider {
     };
   }
 
+  /** Razorpay signs "orderId|paymentId" with the key secret when the buyer finishes in its window. */
+  verifyCheckout(args: { orderId: string; paymentRef: string; signature: string }): boolean {
+    if (!args.orderId || !args.paymentRef || !args.signature) return false;
+    return safeEqualHex(
+      args.signature,
+      hmacHex(this.opts.keySecret, `${args.orderId}|${args.paymentRef}`),
+    );
+  }
+
   verifyWebhook(
     rawBody: Buffer,
     headers: Record<string, string | undefined>,

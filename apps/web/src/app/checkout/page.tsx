@@ -11,6 +11,7 @@ import { clock, dateTimeOf, fmt, fmtMinor, sortSeats, splitSeat, splitTitle } fr
 import { clockSkew, secondsLeft } from '@/lib/hold';
 import { useRequireRole } from '@/lib/hooks';
 import { GATEWAY_METHOD, testToken, type PayMethod } from '@/lib/payment';
+import { payWithRazorpay } from '@/lib/razorpay';
 import { idempotencyKeyFor } from '@/lib/storage';
 import '@/styles/checkout.css';
 
@@ -58,6 +59,8 @@ function Checkout() {
 
   // which payment provider is live: with Stripe, only cards, typed into Stripe's own fields
   const [stripeKey, setStripeKey] = useState<string | null>(null);
+  // with Razorpay, its own window takes the payment details
+  const [razorpayKey, setRazorpayKey] = useState<string | null>(null);
   const makePaymentMethod = useRef<(() => Promise<string>) | null>(null);
   useEffect(() => {
     api<{ provider: string; publishableKey?: string }>('/api/payments/config', {
@@ -150,14 +153,24 @@ function Checkout() {
       return setPayError('The card form is still loading. Try again in a moment.');
     setPaying(true);
     try {
-      const token = stripeKey
-        ? await makePaymentMethod.current!()
-        : testToken(method, { upi, card });
-      await api(`/api/bookings/${booking.id}/pay`, {
-        method: 'POST',
-        body: { method: GATEWAY_METHOD[method], token },
-        headers: { 'idempotency-key': idempotencyKeyFor(booking.id) },
-      });
+      const token = razorpayKey
+        ? 'razorpay_checkout'
+        : stripeKey
+          ? await makePaymentMethod.current!()
+          : testToken(method, { upi, card });
+      const started = await api<{ status: string; providerRef?: string }>(
+        `/api/bookings/${booking.id}/pay`,
+        {
+          method: 'POST',
+          body: { method: razorpayKey ? 'upi' : GATEWAY_METHOD[method], token },
+          headers: { 'idempotency-key': idempotencyKeyFor(booking.id) },
+        },
+      );
+      if (razorpayKey && started.status === 'processing' && started.providerRef) {
+        const done = await payWithRazorpay({ keyId: razorpayKey, orderId: started.providerRef });
+        if (!done) return setPaying(false); // closed the window: the same order reopens on the next click
+        await api(`/api/bookings/${booking.id}/pay/confirm`, { method: 'POST', body: done });
+      }
       router.push(`/status?booking=${booking.id}`);
     } catch (err) {
       setPaying(false);
@@ -236,103 +249,126 @@ function Checkout() {
                 </Link>
               </div>
 
-              <h2 className="sub">How would you like to pay?</h2>
-              <div className="methods" role="radiogroup" aria-label="Payment method" id="methods">
-                {METHODS.filter((m) => !stripeKey || m.id === 'card').map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    className="radio-card"
-                    role="radio"
-                    aria-checked={m.id === method}
-                    onClick={() => setMethod(m.id)}
+              {razorpayKey ? (
+                <p
+                  className="muted"
+                  style={{
+                    margin: '22px 0 0',
+                    padding: '16px 18px',
+                    border: '1px dashed var(--outline)',
+                    borderRadius: 14,
+                    fontSize: 15,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  You will choose UPI, card or netbanking in Razorpay&apos;s secure window.
+                </p>
+              ) : (
+                <>
+                  <h2 className="sub">How would you like to pay?</h2>
+                  <div
+                    className="methods"
+                    role="radiogroup"
+                    aria-label="Payment method"
+                    id="methods"
                   >
-                    <span className="ring" aria-hidden="true"></span>
-                    <span>
-                      <span className="name">{m.name}</span>
-                      <span className="hint">{m.hint}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
+                    {METHODS.filter((m) => !stripeKey || m.id === 'card').map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        className="radio-card"
+                        role="radio"
+                        aria-checked={m.id === method}
+                        onClick={() => setMethod(m.id)}
+                      >
+                        <span className="ring" aria-hidden="true"></span>
+                        <span>
+                          <span className="name">{m.name}</span>
+                          <span className="hint">{m.hint}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
 
-              <div id="panel-upi" className="field" hidden={method !== 'upi'}>
-                <label htmlFor="upi-id">UPI ID</label>
-                <input
-                  id="upi-id"
-                  type="text"
-                  placeholder="name@bank"
-                  autoComplete="off"
-                  value={upi}
-                  onChange={(e) => setUpi(e.target.value)}
-                />
-                <p className="hint">You will get a request in your UPI app to approve.</p>
-              </div>
-              <div id="panel-card" className="field" hidden={method !== 'card'}>
-                {stripeKey ? (
-                  <StripeCardFields
-                    publishableKey={stripeKey}
-                    onReady={(fn) => (makePaymentMethod.current = fn)}
-                    onError={setPayError}
-                  />
-                ) : (
-                  <>
-                    <label htmlFor="card-no">Card number</label>
+                  <div id="panel-upi" className="field" hidden={method !== 'upi'}>
+                    <label htmlFor="upi-id">UPI ID</label>
                     <input
-                      id="card-no"
+                      id="upi-id"
                       type="text"
-                      inputMode="numeric"
-                      placeholder="0000 0000 0000 0000"
+                      placeholder="name@bank"
                       autoComplete="off"
-                      value={card}
-                      onChange={(e) => setCard(e.target.value)}
+                      value={upi}
+                      onChange={(e) => setUpi(e.target.value)}
                     />
-                    <div className="field-row" style={{ marginTop: 14 }}>
-                      <div>
-                        <label htmlFor="card-exp" style={label}>
-                          Expiry
-                        </label>
+                    <p className="hint">You will get a request in your UPI app to approve.</p>
+                  </div>
+                  <div id="panel-card" className="field" hidden={method !== 'card'}>
+                    {stripeKey ? (
+                      <StripeCardFields
+                        publishableKey={stripeKey}
+                        onReady={(fn) => (makePaymentMethod.current = fn)}
+                        onError={setPayError}
+                      />
+                    ) : (
+                      <>
+                        <label htmlFor="card-no">Card number</label>
                         <input
-                          id="card-exp"
+                          id="card-no"
                           type="text"
-                          placeholder="MM / YY"
-                          style={field}
-                          value={exp}
-                          onChange={(e) => setExp(e.target.value)}
+                          inputMode="numeric"
+                          placeholder="0000 0000 0000 0000"
+                          autoComplete="off"
+                          value={card}
+                          onChange={(e) => setCard(e.target.value)}
                         />
-                      </div>
-                      <div>
-                        <label htmlFor="card-cvc" style={label}>
-                          CVC
-                        </label>
-                        <input
-                          id="card-cvc"
-                          type="text"
-                          placeholder="123"
-                          style={field}
-                          value={cvc}
-                          onChange={(e) => setCvc(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-              <p
-                id="panel-net"
-                className="muted"
-                hidden={method !== 'net'}
-                style={{
-                  margin: '22px 0 0',
-                  padding: '16px 18px',
-                  border: '1px dashed var(--outline)',
-                  borderRadius: 14,
-                  fontSize: 15,
-                  lineHeight: 1.5,
-                }}
-              >
-                You will be sent to your bank to finish paying, then brought straight back here.
-              </p>
+                        <div className="field-row" style={{ marginTop: 14 }}>
+                          <div>
+                            <label htmlFor="card-exp" style={label}>
+                              Expiry
+                            </label>
+                            <input
+                              id="card-exp"
+                              type="text"
+                              placeholder="MM / YY"
+                              style={field}
+                              value={exp}
+                              onChange={(e) => setExp(e.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <label htmlFor="card-cvc" style={label}>
+                              CVC
+                            </label>
+                            <input
+                              id="card-cvc"
+                              type="text"
+                              placeholder="123"
+                              style={field}
+                              value={cvc}
+                              onChange={(e) => setCvc(e.target.value)}
+                            />
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <p
+                    id="panel-net"
+                    className="muted"
+                    hidden={method !== 'net'}
+                    style={{
+                      margin: '22px 0 0',
+                      padding: '16px 18px',
+                      border: '1px dashed var(--outline)',
+                      borderRadius: 14,
+                      fontSize: 15,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    You will be sent to your bank to finish paying, then brought straight back here.
+                  </p>
+                </>
+              )}
 
               {payError ? (
                 <State tone="danger" role="alert">

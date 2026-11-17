@@ -224,7 +224,7 @@ Tuning: `HOLD_SWEEP_INTERVAL_MS` (1000), `HOLD_GRACE_MS` (60000), `WAITING_ROOM_
 
 **Fake.** Tokens choose the outcome: `tok_success`, `tok_declined`, `tok_rejected`; set `FAKE_AUTO_WEBHOOK_MS` and the provider delivers its own signed webhook after that delay.
 
-**Razorpay** (`rzp_test_...`): point the provider's webhook at `POST /webhooks/razorpay` on the payment service.
+**Razorpay** (`rzp_test_...`). Put `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` in `.env`; `pnpm stack` then uses it (Stripe wins if both are set). Pressing Pay creates a Razorpay order, and Razorpay's own window (UPI, card, netbanking) opens for it, so payment details never touch this app. When the window reports success, the page sends the payment id and signature to `POST /api/bookings/:id/pay/confirm`; the payment service checks the signature (HMAC of `order|payment` with the key secret), that the order belongs to this buyer's payment, and then settles it. Test UPI ids are `success@razorpay` and `failure@razorpay`. Closing the window and pressing Pay again reopens the same order. The webhook (`POST /webhooks/razorpay`, secret in `RAZORPAY_WEBHOOK_SECRET`) needs a public address (a tunnel) and is optional: without it, payments still complete from the confirm step, but a payment that fails later or a refund confirmation cannot reach us, and an abandoned order is cleaned up by the seat-hold expiry.
 
 Tests use fakes of each provider's server (`services/payment/test/stripe.test.ts`); no real Stripe call is made by the test suite, and the real Stripe API has not been exercised until you add keys.
 

@@ -93,6 +93,7 @@ const bookings: BookingClient = {
   },
 };
 
+const confirmCalls: Parameters<PaymentClient['confirm']>[0][] = [];
 const payments: PaymentClient = {
   pay: async (input) => {
     payCalls.push(input);
@@ -103,6 +104,10 @@ const payments: PaymentClient = {
     if (input.idempotencyKey === 'reused-key-00001')
       throw new DownstreamError(422, 'Idempotency-Key was already used for a different request');
     return { paymentId: 'pay-1', status: 'processing' };
+  },
+  confirm: async (input) => {
+    confirmCalls.push(input);
+    return { paymentId: 'pay-1', status: 'succeeded' };
   },
 };
 
@@ -320,6 +325,36 @@ describe('GET /api/bookings/:id', () => {
       .set('Authorization', auth)
       .expect(503);
     await request(app.getHttpServer()).get('/api/bookings/bk-1').expect(401);
+  });
+});
+
+describe('POST /api/bookings/:id/pay/confirm', () => {
+  const body = { orderId: 'order_1', paymentId: 'pay_9', signature: 'sig' };
+  it('is for the signed-in buyer of that booking only, and takes the user from the token', async () => {
+    await request(app.getHttpServer())
+      .post('/api/bookings/bk-1/pay/confirm')
+      .send(body)
+      .expect(401);
+    await request(app.getHttpServer())
+      .post('/api/bookings/theirs/pay/confirm')
+      .set('Authorization', token('attendee', 'alice'))
+      .send(body)
+      .expect(403);
+    confirmCalls.length = 0;
+    await request(app.getHttpServer())
+      .post('/api/bookings/bk-1/pay/confirm')
+      .set('Authorization', token('attendee', 'alice'))
+      .send({ ...body, userId: 'mallory' })
+      .expect(200, { paymentId: 'pay-1', status: 'succeeded' });
+    expect(confirmCalls).toEqual([
+      {
+        bookingId: 'bk-1',
+        userId: 'alice',
+        orderId: 'order_1',
+        paymentRef: 'pay_9',
+        signature: 'sig',
+      },
+    ]);
   });
 });
 

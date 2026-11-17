@@ -59,7 +59,11 @@ async function main(): Promise<void> {
   const paymentsConfig: PaymentsConfig =
     process.env.PAYMENT_PROVIDER === 'stripe'
       ? { provider: 'stripe', publishableKey: requireEnv('STRIPE_PUBLISHABLE_KEY') }
-      : { provider: 'fake' };
+      : process.env.PAYMENT_PROVIDER === 'razorpay'
+        ? { provider: 'razorpay', keyId: requireEnv('RAZORPAY_KEY_ID') }
+        : { provider: 'fake' };
+  if (paymentsConfig.provider === 'razorpay' && !paymentsConfig.keyId.startsWith('rzp_test_'))
+    throw new Error('RAZORPAY_KEY_ID must be a test key (rzp_test_...)');
   if (paymentsConfig.provider === 'stripe' && !paymentsConfig.publishableKey.startsWith('pk_test_'))
     throw new Error('STRIPE_PUBLISHABLE_KEY must be a test key (pk_test_...)');
 

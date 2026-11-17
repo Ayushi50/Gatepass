@@ -111,6 +111,30 @@ export class BookingsController {
   }
 
   /**
+   * The buyer finished paying in the provider's own window (Razorpay) and the page passes on the
+   * payment id and signature it got back. The payment service checks the signature.
+   */
+  @Post('bookings/:id/pay/confirm')
+  @Roles('attendee')
+  @HttpCode(200)
+  async confirmPay(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Body() body: { orderId?: string; paymentId?: string; signature?: string },
+  ) {
+    await this.ownedBooking(req.user!.sub, id);
+    return relay(() =>
+      this.payments.confirm({
+        bookingId: id,
+        userId: req.user!.sub,
+        orderId: String(body?.orderId ?? ''),
+        paymentRef: String(body?.paymentId ?? ''),
+        signature: String(body?.signature ?? ''),
+      }),
+    );
+  }
+
+  /**
    * Live progress of one booking for the status page. The first message is a snapshot of the
    * booking (`kind: "snapshot"`), then one message per step (`kind: "event"`). Lights only ever
    * turn on, so a step seen both in the snapshot and live is harmless.

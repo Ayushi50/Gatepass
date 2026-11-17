@@ -53,6 +53,8 @@ export interface StackOptions {
   admitPerSecond?: number;
   /** Charge through Stripe (test mode) instead of the fake provider; needs STRIPE_* keys in the environment. */
   stripe?: boolean;
+  /** Charge through Razorpay (test mode); needs RAZORPAY_* keys in the environment. */
+  razorpay?: boolean;
   /** Also start Jaeger (traces), Prometheus (metrics) and Grafana (dashboard); downloads them on first use. */
   observability?: boolean;
   log?: (line: string) => void;
@@ -163,7 +165,16 @@ export async function startStack(opts: StackOptions = {}): Promise<Stack> {
         'payment',
         {
           ...url('payment'),
-          PAYMENT_PROVIDER: opts.stripe ? 'stripe' : 'fake',
+          PAYMENT_PROVIDER: opts.stripe ? 'stripe' : opts.razorpay ? 'razorpay' : 'fake',
+          ...(opts.razorpay
+            ? {
+                RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID!,
+                RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET!,
+                ...(process.env.RAZORPAY_WEBHOOK_SECRET
+                  ? { RAZORPAY_WEBHOOK_SECRET: process.env.RAZORPAY_WEBHOOK_SECRET }
+                  : {}),
+              }
+            : {}),
           ...(opts.stripe
             ? {
                 STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY!,
@@ -198,6 +209,9 @@ export async function startStack(opts: StackOptions = {}): Promise<Stack> {
           JWT_SECRET,
           REDIS_URL: redis.url,
           ENABLE_DEV_LOGIN: 'true',
+          ...(opts.razorpay
+            ? { PAYMENT_PROVIDER: 'razorpay', RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID! }
+            : {}),
           ...(opts.stripe
             ? {
                 PAYMENT_PROVIDER: 'stripe',

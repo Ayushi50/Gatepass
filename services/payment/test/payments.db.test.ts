@@ -17,6 +17,7 @@ import {
   PaymentConflictError,
   PaymentValidationError,
   ProviderUnavailableError,
+  confirmCheckout,
   handleWebhook,
   onSeatsHeld,
   onSeatsReleased,
@@ -409,7 +410,11 @@ describe('HTTP', () => {
   it('POST /payments answers 202 and maps errors to 400 / 404 / 409 / 422 / 503', async () => {
     const id = await payable();
     const ok = await request(app.getHttpServer()).post('/payments').send(pay(id)).expect(202);
-    expect(ok.body).toEqual({ paymentId: expect.any(String), status: 'processing' });
+    expect(ok.body).toEqual({
+      paymentId: expect.any(String),
+      status: 'processing',
+      providerRef: expect.any(String),
+    });
     await request(app.getHttpServer()).post('/payments').send(pay(id)).expect(202); // replay
     await request(app.getHttpServer())
       .post('/payments')
@@ -475,5 +480,91 @@ describe('a charge the provider settles on the spot (Stripe cards)', () => {
     expect(await deliver(res.paymentId, 'succeeded')).toBe('already');
     expect(await outbox(id, 'payment.succeeded')).toHaveLength(1);
     expect((await paymentRows(id))[0].state).toBe('SUCCEEDED');
+  });
+});
+
+describe('confirming a checkout the buyer finished in the provider window (Razorpay)', () => {
+  // a provider that creates an order and can say whether a checkout signature is genuine
+  const orderProvider = () => {
+    const p = Object.create(provider) as FakeProvider & {
+      verifyCheckout: (a: { orderId: string; paymentRef: string; signature: string }) => boolean;
+    };
+    p.createCharge = async (req) => ({ providerRef: `order_${req.paymentId.slice(-8)}` });
+    p.verifyCheckout = (a) => a.signature === `good:${a.orderId}|${a.paymentRef}`;
+    return p;
+  };
+  const start = async (p: FakeProvider, id: string) => {
+    const res = await startPayment({ pool, provider: p }, pay(id));
+    const row = (await paymentRows(id))[0];
+    return { res, orderId: row.provider_ref as string };
+  };
+
+  it('settles the payment, remembers the provider payment id for refunds, and publishes once', async () => {
+    const p = orderProvider();
+    const id = await payable();
+    const { res, orderId } = await start(p, id);
+    expect(res).toMatchObject({ status: 'processing', providerRef: orderId });
+
+    const args = {
+      bookingId: id,
+      userId: 'alice',
+      orderId,
+      paymentRef: 'pay_XYZ',
+      signature: `good:${orderId}|pay_XYZ`,
+    };
+    expect((await confirmCheckout({ pool, provider: p }, args)).status).toBe('succeeded');
+    expect((await confirmCheckout({ pool, provider: p }, args)).status).toBe('succeeded'); // a retry
+    expect(await outbox(id, 'payment.succeeded')).toHaveLength(1);
+    expect((await paymentRows(id))[0]).toMatchObject({
+      state: 'SUCCEEDED',
+      provider_payment_id: 'pay_XYZ',
+    });
+  });
+
+  it('refuses a bad signature, another buyer, and a genuine signature for some other order', async () => {
+    const p = orderProvider();
+    const id = await payable();
+    const { orderId } = await start(p, id);
+    const ok = {
+      bookingId: id,
+      userId: 'alice',
+      orderId,
+      paymentRef: 'pay_1',
+      signature: `good:${orderId}|pay_1`,
+    };
+    await expect(
+      confirmCheckout({ pool, provider: p }, { ...ok, signature: 'forged' }),
+    ).rejects.toBeInstanceOf(InvalidSignatureError);
+    await expect(
+      confirmCheckout({ pool, provider: p }, { ...ok, userId: 'mallory' }),
+    ).rejects.toBeInstanceOf(PayableNotFoundError);
+    await expect(
+      confirmCheckout(
+        { pool, provider: p },
+        { ...ok, orderId: 'order_other', signature: 'good:order_other|pay_1' },
+      ),
+    ).rejects.toBeInstanceOf(PayableNotFoundError);
+    expect((await paymentRows(id))[0].state).toBe('PROCESSING');
+    expect(await outbox(id, 'payment.succeeded')).toHaveLength(0);
+  });
+
+  it('does not let a late confirmation undo a payment that already failed', async () => {
+    const p = orderProvider();
+    const id = await payable();
+    const { res, orderId } = await start(p, id);
+    await deliver(res.paymentId, 'failed');
+    await expect(
+      confirmCheckout(
+        { pool, provider: p },
+        {
+          bookingId: id,
+          userId: 'alice',
+          orderId,
+          paymentRef: 'pay_2',
+          signature: `good:${orderId}|pay_2`,
+        },
+      ),
+    ).rejects.toBeInstanceOf(PaymentConflictError);
+    expect((await paymentRows(id))[0].state).toBe('FAILED');
   });
 });
