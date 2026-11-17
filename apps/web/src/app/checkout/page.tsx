@@ -136,10 +136,13 @@ function Checkout() {
   async function pay() {
     if (!booking || paying || gone) return;
     setPayError(null);
-    if (method === 'upi' && !/^[^\s@]+@[^\s@]+$/.test(upi.trim()))
-      return setPayError('Enter your UPI ID, like name@bank.');
-    if (method === 'card' && card.replace(/\D/g, '').length < 12)
-      return setPayError('Enter your card number.');
+    // with Razorpay the details are typed in its own window, not here
+    if (!razorpayKey) {
+      if (method === 'upi' && !/^[^\s@]+@[^\s@]+$/.test(upi.trim()))
+        return setPayError('Enter your UPI ID, like name@bank.');
+      if (method === 'card' && card.replace(/\D/g, '').length < 12)
+        return setPayError('Enter your card number.');
+    }
     setPaying(true);
     try {
       const token = razorpayKey ? 'razorpay_checkout' : testToken(method, { upi, card });
