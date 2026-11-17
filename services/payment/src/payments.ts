@@ -188,9 +188,8 @@ async function submitToProvider(
   input: StartPaymentInput,
 ): Promise<PaymentResult> {
   let providerRef: string;
-  let settled: 'succeeded' | undefined;
   try {
-    ({ providerRef, settled } = await deps.provider.createCharge({
+    ({ providerRef } = await deps.provider.createCharge({
       paymentId: payment.id,
       bookingId: payment.booking_id,
       amountMinor: Number(payment.amount_minor),
@@ -213,18 +212,6 @@ async function submitToProvider(
     throw err instanceof ProviderUnavailableError
       ? err
       : new ProviderUnavailableError(`payment provider error: ${(err as Error).message}`);
-  }
-
-  if (settled === 'succeeded') {
-    const after: (() => void)[] = [];
-    const state = await withTransaction(deps.pool, async (tx) => {
-      const locked = await lockPayment(tx, payment.id);
-      if (!locked) return 'FAILED' as PaymentState;
-      await applyOutcome(tx, locked, 'succeeded', { providerRef }, after);
-      return (await lockPayment(tx, payment.id))!.state;
-    });
-    after.forEach((f) => f());
-    return result(payment.id, state);
   }
 
   const advanced = await deps.pool.query<{ state: PaymentState }>(

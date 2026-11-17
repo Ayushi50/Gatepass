@@ -292,11 +292,6 @@ describe('GET /api/payments/config', () => {
       .get('/api/payments/config')
       .expect(200, { provider: 'fake' });
     await fake.close();
-    const stripe = await appPayments({ provider: 'stripe', publishableKey: 'pk_test_abc' });
-    await request(stripe.getHttpServer())
-      .get('/api/payments/config')
-      .expect(200, { provider: 'stripe', publishableKey: 'pk_test_abc' });
-    await stripe.close();
     const rzp = await appPayments({ provider: 'razorpay', keyId: 'rzp_test_abc' });
     await request(rzp.getHttpServer())
       .get('/api/payments/config')

@@ -51,8 +51,6 @@ export interface StackOptions {
   autoWebhookMs?: number;
   /** Waiting-room admissions per second. Default 5. */
   admitPerSecond?: number;
-  /** Charge through Stripe (test mode) instead of the fake provider; needs STRIPE_* keys in the environment. */
-  stripe?: boolean;
   /** Charge through Razorpay (test mode); needs RAZORPAY_* keys in the environment. */
   razorpay?: boolean;
   /** Also start Jaeger (traces), Prometheus (metrics) and Grafana (dashboard); downloads them on first use. */
@@ -165,21 +163,13 @@ export async function startStack(opts: StackOptions = {}): Promise<Stack> {
         'payment',
         {
           ...url('payment'),
-          PAYMENT_PROVIDER: opts.stripe ? 'stripe' : opts.razorpay ? 'razorpay' : 'fake',
+          PAYMENT_PROVIDER: opts.razorpay ? 'razorpay' : 'fake',
           ...(opts.razorpay
             ? {
                 RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID!,
                 RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET!,
                 ...(process.env.RAZORPAY_WEBHOOK_SECRET
                   ? { RAZORPAY_WEBHOOK_SECRET: process.env.RAZORPAY_WEBHOOK_SECRET }
-                  : {}),
-              }
-            : {}),
-          ...(opts.stripe
-            ? {
-                STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY!,
-                ...(process.env.STRIPE_WEBHOOK_SECRET
-                  ? { STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET }
                   : {}),
               }
             : {}),
@@ -212,12 +202,6 @@ export async function startStack(opts: StackOptions = {}): Promise<Stack> {
           ...(opts.razorpay
             ? { PAYMENT_PROVIDER: 'razorpay', RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID! }
             : {}),
-          ...(opts.stripe
-            ? {
-                PAYMENT_PROVIDER: 'stripe',
-                STRIPE_PUBLISHABLE_KEY: process.env.STRIPE_PUBLISHABLE_KEY!,
-              }
-            : {}),
           ...(opts.rateLimitPerMinute === undefined
             ? {}
             : {
@@ -240,7 +224,7 @@ export async function startStack(opts: StackOptions = {}): Promise<Stack> {
     await Promise.all(list.map((p) => p.start()));
     say('services are up');
 
-    if (opts.seed !== false) await seed(databases.catalog, say, !opts.stripe && !opts.razorpay);
+    if (opts.seed !== false) await seed(databases.catalog, say, !opts.razorpay);
 
     if (opts.web !== false) {
       const next = require.resolve('next/dist/bin/next', { paths: [WEB] });

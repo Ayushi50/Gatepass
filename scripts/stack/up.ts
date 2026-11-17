@@ -15,11 +15,8 @@ if (existsSync(dotenv)) process.loadEnvFile(dotenv);
 
 async function main(): Promise<void> {
   const args = new Set(process.argv.slice(2));
-  const stripe = !!process.env.STRIPE_SECRET_KEY;
-  if (stripe && !process.env.STRIPE_PUBLISHABLE_KEY)
-    throw new Error('STRIPE_PUBLISHABLE_KEY is missing from .env');
-  // Stripe wins if both are set; Razorpay needs both its key id and secret
-  const razorpay = !stripe && !!process.env.RAZORPAY_KEY_ID;
+  // Razorpay (test mode) is used when its keys are in .env; otherwise the fake provider
+  const razorpay = !!process.env.RAZORPAY_KEY_ID;
   if (razorpay && !process.env.RAZORPAY_KEY_SECRET)
     throw new Error('RAZORPAY_KEY_SECRET is missing from .env');
   const google = !!process.env.GOOGLE_CLIENT_ID;
@@ -32,7 +29,6 @@ async function main(): Promise<void> {
     web: !args.has('--no-web'),
     seed: !args.has('--no-seed'),
     observability: args.has('--observability'),
-    stripe,
     razorpay,
   });
   console.log(`
@@ -45,8 +41,8 @@ Gatepass is running.
   Logs         ${stack.logDir}
 
   Demo shows: Neon Nights Live (waiting room), The Laugh Lab, Campus Fest Finale, Midnight Market, and
-  Jazz on the Roof (sold out). Payments use the FAKE provider unless .env has Stripe or Razorpay test keys
-  (Stripe: card 4242 4242 4242 4242. Razorpay: UPI success@razorpay, or its test cards).
+  Jazz on the Roof (sold out). Payments use the FAKE provider unless .env has Razorpay test keys
+  (then pay with UPI success@razorpay, or one of Razorpay's test cards).
   Sign in as "Organizer" to see sales and approve refunds; as "Door staff" to scan tickets.
 
 Press Ctrl-C to stop everything.`);

@@ -3,7 +3,6 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { StepsHeader } from '@/components/Header';
-import { StripeCardFields } from '@/components/StripeCard';
 import { Loading, State } from '@/components/State';
 import { api, ApiError, type Booking, type Seat } from '@/lib/api';
 import { useEvent } from '@/lib/events';
@@ -57,20 +56,12 @@ function Checkout() {
   const [seats, setSeats] = useState<Seat[]>([]);
   const event = useEvent(booking?.eventId ?? '');
 
-  // which payment provider is live: with Stripe, only cards, typed into Stripe's own fields
-  const [stripeKey, setStripeKey] = useState<string | null>(null);
   // with Razorpay, its own window takes the payment details
   const [razorpayKey, setRazorpayKey] = useState<string | null>(null);
-  const makePaymentMethod = useRef<(() => Promise<string>) | null>(null);
   useEffect(() => {
-    api<{ provider: string; publishableKey?: string }>('/api/payments/config', {
-      auth: false,
-    }).then(
+    api<{ provider: string; keyId?: string }>('/api/payments/config', { auth: false }).then(
       (c) => {
-        if (c.provider === 'stripe' && c.publishableKey) {
-          setStripeKey(c.publishableKey);
-          setMethod('card');
-        }
+        if (c.provider === 'razorpay' && c.keyId) setRazorpayKey(c.keyId);
       },
       () => undefined,
     );
@@ -147,17 +138,11 @@ function Checkout() {
     setPayError(null);
     if (method === 'upi' && !/^[^\s@]+@[^\s@]+$/.test(upi.trim()))
       return setPayError('Enter your UPI ID, like name@bank.');
-    if (!stripeKey && method === 'card' && card.replace(/\D/g, '').length < 12)
+    if (method === 'card' && card.replace(/\D/g, '').length < 12)
       return setPayError('Enter your card number.');
-    if (stripeKey && !makePaymentMethod.current)
-      return setPayError('The card form is still loading. Try again in a moment.');
     setPaying(true);
     try {
-      const token = razorpayKey
-        ? 'razorpay_checkout'
-        : stripeKey
-          ? await makePaymentMethod.current!()
-          : testToken(method, { upi, card });
+      const token = razorpayKey ? 'razorpay_checkout' : testToken(method, { upi, card });
       const started = await api<{ status: string; providerRef?: string }>(
         `/api/bookings/${booking.id}/pay`,
         {
@@ -272,7 +257,7 @@ function Checkout() {
                     aria-label="Payment method"
                     id="methods"
                   >
-                    {METHODS.filter((m) => !stripeKey || m.id === 'card').map((m) => (
+                    {METHODS.map((m) => (
                       <button
                         key={m.id}
                         type="button"
@@ -303,54 +288,44 @@ function Checkout() {
                     <p className="hint">You will get a request in your UPI app to approve.</p>
                   </div>
                   <div id="panel-card" className="field" hidden={method !== 'card'}>
-                    {stripeKey ? (
-                      <StripeCardFields
-                        publishableKey={stripeKey}
-                        onReady={(fn) => (makePaymentMethod.current = fn)}
-                        onError={setPayError}
-                      />
-                    ) : (
-                      <>
-                        <label htmlFor="card-no">Card number</label>
+                    <label htmlFor="card-no">Card number</label>
+                    <input
+                      id="card-no"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="0000 0000 0000 0000"
+                      autoComplete="off"
+                      value={card}
+                      onChange={(e) => setCard(e.target.value)}
+                    />
+                    <div className="field-row" style={{ marginTop: 14 }}>
+                      <div>
+                        <label htmlFor="card-exp" style={label}>
+                          Expiry
+                        </label>
                         <input
-                          id="card-no"
+                          id="card-exp"
                           type="text"
-                          inputMode="numeric"
-                          placeholder="0000 0000 0000 0000"
-                          autoComplete="off"
-                          value={card}
-                          onChange={(e) => setCard(e.target.value)}
+                          placeholder="MM / YY"
+                          style={field}
+                          value={exp}
+                          onChange={(e) => setExp(e.target.value)}
                         />
-                        <div className="field-row" style={{ marginTop: 14 }}>
-                          <div>
-                            <label htmlFor="card-exp" style={label}>
-                              Expiry
-                            </label>
-                            <input
-                              id="card-exp"
-                              type="text"
-                              placeholder="MM / YY"
-                              style={field}
-                              value={exp}
-                              onChange={(e) => setExp(e.target.value)}
-                            />
-                          </div>
-                          <div>
-                            <label htmlFor="card-cvc" style={label}>
-                              CVC
-                            </label>
-                            <input
-                              id="card-cvc"
-                              type="text"
-                              placeholder="123"
-                              style={field}
-                              value={cvc}
-                              onChange={(e) => setCvc(e.target.value)}
-                            />
-                          </div>
-                        </div>
-                      </>
-                    )}
+                      </div>
+                      <div>
+                        <label htmlFor="card-cvc" style={label}>
+                          CVC
+                        </label>
+                        <input
+                          id="card-cvc"
+                          type="text"
+                          placeholder="123"
+                          style={field}
+                          value={cvc}
+                          onChange={(e) => setCvc(e.target.value)}
+                        />
+                      </div>
+                    </div>
                   </div>
                   <p
                     id="panel-net"

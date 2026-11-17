@@ -17,11 +17,6 @@ export interface ChargeRequest {
 
 export interface ChargeResult {
   providerRef: string;
-  /**
-   * Set when the provider's own authenticated reply already says the money was taken. The payment
-   * is then settled at once, and the provider's later webhook finds it already settled.
-   */
-  settled?: 'succeeded';
 }
 
 export interface RefundRequest {

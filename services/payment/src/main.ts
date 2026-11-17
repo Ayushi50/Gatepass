@@ -10,7 +10,6 @@ import { PaymentModule } from './http/payment.module';
 import { FAKE_SIGNATURE_HEADER, FakeProvider } from './providers/fake-provider';
 import type { PaymentProvider } from './providers/provider';
 import { RazorpayTestProvider } from './providers/razorpay-provider';
-import { StripeTestProvider } from './providers/stripe-provider';
 import {
   collectProcessMetrics,
   initTelemetry,
@@ -26,12 +25,6 @@ function buildProvider(port: number): PaymentProvider {
       keyId: requireEnv('RAZORPAY_KEY_ID'),
       keySecret: requireEnv('RAZORPAY_KEY_SECRET'),
       webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET || randomBytes(32).toString('hex'), // unset: nothing can pass the signature check
-    });
-  }
-  if (kind === 'stripe') {
-    return new StripeTestProvider({
-      secretKey: requireEnv('STRIPE_SECRET_KEY'),
-      webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || randomBytes(32).toString('hex'), // unset: nothing can pass the signature check,
     });
   }
   if (kind === 'fake') {
@@ -56,7 +49,7 @@ function buildProvider(port: number): PaymentProvider {
           : undefined,
     });
   }
-  throw new Error(`PAYMENT_PROVIDER must be "fake", "razorpay" or "stripe", got "${kind}"`);
+  throw new Error(`PAYMENT_PROVIDER must be "fake" or "razorpay", got "${kind}"`);
 }
 
 async function main(): Promise<void> {

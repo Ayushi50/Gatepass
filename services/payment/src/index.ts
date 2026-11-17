@@ -5,4 +5,3 @@ export * from './providers/provider';
 export * from './providers/fake-provider';
 export * from './providers/razorpay-provider';
 export * from './refunds';
-export * from './providers/stripe-provider';
