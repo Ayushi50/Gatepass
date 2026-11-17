@@ -175,9 +175,26 @@ describe('holding the seats', () => {
     expect(document.querySelectorAll('button.seat[data-state="selected"]').length).toBe(0);
   });
 
-  it('signed out: the picks are kept and you are sent to sign in, then back', async () => {
+  it('signed out: nothing loads, and you are sent to sign in and back', async () => {
     window.localStorage.clear();
+    const goTo = vi.fn();
+    vi.stubGlobal('location', {
+      ...window.location,
+      pathname: '/seats',
+      search: '?event=neon-nights',
+      replace: goTo,
+    });
+    const { default: Page } = await import('@/app/seats/page');
+    render(<Page />);
+    await waitFor(() => expect(goTo).toHaveBeenCalled());
+    expect(goTo.mock.calls[0]![0]).toBe('/sign-in?next=%2Fseats%3Fevent%3Dneon-nights');
+    expect(calls.some((c) => c.url.includes('/seats'))).toBe(false); // no seat data for a stranger
+    vi.unstubAllGlobals();
+  });
+
+  it('a session that ends while you choose: the picks are kept and you sign in, then come back', async () => {
     await page();
+    window.localStorage.clear();
     fireEvent.click(seat('B3'));
     fireEvent.click(document.getElementById('hold-link')!);
     await waitFor(() => expect(push).toHaveBeenCalled());

@@ -22,6 +22,17 @@ export function useRequireRole(role: Role): boolean {
   return !!session && session.role === role;
 }
 
+/** Sends the visitor to sign in (and back) unless they are signed in as anyone. Returns true once they are. */
+export function useRequireSignIn(): boolean {
+  const session = useSession();
+  useEffect(() => {
+    if (session !== null) return;
+    const next = encodeURIComponent(window.location.pathname + window.location.search);
+    window.location.replace(`/sign-in?next=${next}`);
+  }, [session]);
+  return !!session;
+}
+
 /** Re-renders every `ms` so relative times ("14s ago") stay true. */
 export function useTick(ms: number): number {
   const [now, setNow] = useState(() => Date.now());

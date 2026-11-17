@@ -6,6 +6,7 @@ import { Loading, State } from '@/components/State';
 import { api, ApiError, type Booking, type Seat } from '@/lib/api';
 import { admissionToken, useEvent } from '@/lib/events';
 import { dateTimeOf, fmt, sortSeats, splitSeat, splitTitle } from '@/lib/format';
+import { useRequireSignIn } from '@/lib/hooks';
 import { getSession } from '@/lib/session';
 import { openStream } from '@/lib/sse';
 import {
@@ -30,6 +31,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 function SeatsPage() {
   const router = useRouter();
   const eventId = useSearchParams().get('event') ?? '';
+  const signedIn = useRequireSignIn();
   const event = useEvent(eventId);
 
   const [seats, setSeats] = useState<Seat[] | null>(null);
@@ -50,7 +52,9 @@ function SeatsPage() {
       );
     }
   }, [eventId]);
-  useEffect(() => void loadSeats(), [loadSeats]);
+  useEffect(() => {
+    if (signedIn) void loadSeats();
+  }, [signedIn, loadSeats]);
 
   // A high-demand show is entered through the waiting room.
   useEffect(() => {

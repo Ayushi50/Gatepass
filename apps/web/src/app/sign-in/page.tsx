@@ -3,7 +3,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { Header, NAV } from '@/components/Header';
 import { api } from '@/lib/api';
-import { decodeToken, setSession, type Role } from '@/lib/session';
+import { decodeToken, getSession, setSession, type Role } from '@/lib/session';
 import '@/styles/sign-in.css';
 
 const ROLES: { id: Role; name: string; hint: string; start: string }[] = [
@@ -38,9 +38,21 @@ function SignIn() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // which sign-in methods the server offers; nothing is shown until it has said
+  // already signed in: nothing to do here (a different role asked for explicitly lets you switch)
+  const [signedInAs, setSignedInAs] = useState<Role | null>(null);
   const [methods, setMethods] = useState<{ google: boolean; demo: boolean } | null>(null);
 
   useEffect(() => {
+    const existing = getSession();
+    if (existing && !window.location.hash.includes('token=')) {
+      const asked = params.get('role');
+      if (!asked || asked === existing.role) {
+        const dest = local(next) ?? ROLES.find((r) => r.id === existing.role)!.start;
+        router.replace(dest);
+        return;
+      }
+      setSignedInAs(existing.role);
+    }
     api<{ google: boolean; demo: boolean }>('/api/auth/config', { auth: false })
       .then(setMethods)
       .catch(() => setMethods({ google: false, demo: true }));
@@ -98,7 +110,7 @@ function SignIn() {
           There are no real accounts yet. Pick a role to try the app; nothing here is a real person.
         </p>
 
-        {methods?.google ? (
+        {methods?.google && !signedInAs ? (
           <a
             className="btn btn-amber btn-block"
             style={{ marginTop: 24, minHeight: 60, fontSize: 17 }}
