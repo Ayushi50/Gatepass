@@ -240,7 +240,7 @@ export async function startStack(opts: StackOptions = {}): Promise<Stack> {
     await Promise.all(list.map((p) => p.start()));
     say('services are up');
 
-    if (opts.seed !== false) await seed(databases.catalog, say);
+    if (opts.seed !== false) await seed(databases.catalog, say, !opts.stripe && !opts.razorpay);
 
     if (opts.web !== false) {
       const next = require.resolve('next/dist/bin/next', { paths: [WEB] });
@@ -287,7 +287,12 @@ export async function startStack(opts: StackOptions = {}): Promise<Stack> {
 }
 
 /** The five demo shows from design/events.html; Jazz on the Roof is then genuinely sold out. */
-async function seed(catalogDb: TestDatabase, say: (m: string) => void): Promise<void> {
+async function seed(
+  catalogDb: TestDatabase,
+  say: (m: string) => void,
+  /** Selling Jazz out means paying with the fake provider's test token; a real provider cannot do that. */
+  sellOutJazz: boolean,
+): Promise<void> {
   for (const e of DEMO_EVENTS) await createEvent(catalogDb.pool, e);
   const probe = token('probe', 'attendee');
   for (const e of DEMO_EVENTS) {
@@ -300,6 +305,12 @@ async function seed(catalogDb: TestDatabase, say: (m: string) => void): Promise<
       if (i > 120) throw new Error(`${e.id} never reached seat-inventory`);
       await sleep(500);
     }
+  }
+  if (!sellOutJazz) {
+    say(
+      'five demo shows published (Jazz on the Roof stays on sale: a real payment provider cannot be paid by the seed)',
+    );
+    return;
   }
   say('five demo shows published; selling out Jazz on the Roof...');
 
