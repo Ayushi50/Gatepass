@@ -51,6 +51,8 @@ export interface StackOptions {
   autoWebhookMs?: number;
   /** Waiting-room admissions per second. Default 5. */
   admitPerSecond?: number;
+  /** Charge through Stripe (test mode) instead of the fake provider; needs STRIPE_* keys in the environment. */
+  stripe?: boolean;
   /** Also start Jaeger (traces), Prometheus (metrics) and Grafana (dashboard); downloads them on first use. */
   observability?: boolean;
   log?: (line: string) => void;
@@ -161,7 +163,15 @@ export async function startStack(opts: StackOptions = {}): Promise<Stack> {
         'payment',
         {
           ...url('payment'),
-          PAYMENT_PROVIDER: 'fake',
+          PAYMENT_PROVIDER: opts.stripe ? 'stripe' : 'fake',
+          ...(opts.stripe
+            ? {
+                STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY!,
+                ...(process.env.STRIPE_WEBHOOK_SECRET
+                  ? { STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET }
+                  : {}),
+              }
+            : {}),
           FAKE_WEBHOOK_SECRET: 'local-stack-fake-webhook-secret',
           FAKE_AUTO_WEBHOOK_MS: String(opts.autoWebhookMs ?? 800),
         },
@@ -188,6 +198,12 @@ export async function startStack(opts: StackOptions = {}): Promise<Stack> {
           JWT_SECRET,
           REDIS_URL: redis.url,
           ENABLE_DEV_LOGIN: 'true',
+          ...(opts.stripe
+            ? {
+                PAYMENT_PROVIDER: 'stripe',
+                STRIPE_PUBLISHABLE_KEY: process.env.STRIPE_PUBLISHABLE_KEY!,
+              }
+            : {}),
           ...(opts.rateLimitPerMinute === undefined
             ? {}
             : {

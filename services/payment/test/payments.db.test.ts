@@ -456,3 +456,24 @@ describe('HTTP', () => {
     await request(app.getHttpServer()).post('/webhooks/stripe').send('{}').expect(404);
   });
 });
+
+describe('a charge the provider settles on the spot (Stripe cards)', () => {
+  it('succeeds at once, publishes payment.succeeded once, and the later webhook changes nothing', async () => {
+    const id = await payable();
+    const settling = Object.assign(Object.create(provider), {
+      createCharge: async (req: { paymentId: string }) => {
+        const out = await provider.createCharge(req as never);
+        return { ...out, settled: 'succeeded' as const };
+      },
+    }) as FakeProvider;
+    const res = await startPayment({ pool, provider: settling }, pay(id));
+    expect(res.status).toBe('succeeded');
+    expect(await outbox(id, 'payment.succeeded')).toHaveLength(1);
+
+    // replaying the request, and the provider's own webhook, must not publish again
+    expect((await startPayment({ pool, provider: settling }, pay(id))).status).toBe('succeeded');
+    expect(await deliver(res.paymentId, 'succeeded')).toBe('already');
+    expect(await outbox(id, 'payment.succeeded')).toHaveLength(1);
+    expect((await paymentRows(id))[0].state).toBe('SUCCEEDED');
+  });
+});

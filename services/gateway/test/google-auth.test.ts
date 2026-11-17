@@ -257,3 +257,45 @@ describe('Google sign-in', () => {
     await bare.close();
   });
 });
+
+describe('GET /api/payments/config', () => {
+  async function appPayments(payments: GatewayOptions['paymentsConfig']) {
+    const stub = {} as never;
+    const mod = await Test.createTestingModule({
+      imports: [
+        GatewayModule.forRoot({
+          catalog: stub,
+          inventory: stub,
+          bookings: stub,
+          payments: stub,
+          tickets: stub,
+          analytics: stub,
+          hub: new SeatStreamHub(),
+          bookingHub: new BookingStreamHub(),
+          activityHub: new ActivityStreamHub(),
+          waitingRoom: new WaitingRoom({} as never, {
+            admitPerSecond: 5,
+            admissionTtlSeconds: 300,
+          }),
+          jwtSecret: SECRET,
+          paymentsConfig: payments,
+        }),
+      ],
+    }).compile();
+    const app = mod.createNestApplication();
+    await app.init();
+    return app;
+  }
+  it('says which payment provider checkout should use, and only ever a publishable key', async () => {
+    const fake = await appPayments(undefined);
+    await request(fake.getHttpServer())
+      .get('/api/payments/config')
+      .expect(200, { provider: 'fake' });
+    await fake.close();
+    const stripe = await appPayments({ provider: 'stripe', publishableKey: 'pk_test_abc' });
+    await request(stripe.getHttpServer())
+      .get('/api/payments/config')
+      .expect(200, { provider: 'stripe', publishableKey: 'pk_test_abc' });
+    await stripe.close();
+  });
+});

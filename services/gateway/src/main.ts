@@ -12,6 +12,7 @@ import {
   HttpTicketClient,
 } from './clients/clients';
 import { GatewayModule } from './gateway.module';
+import type { PaymentsConfig } from './http/payments-config.controller';
 import { RateLimiter, rateLimitMiddleware } from './rate-limit/rate-limit';
 import { WaitingRoom, WaitingRoomAdmitter } from './waiting-room/waiting-room';
 import {
@@ -55,6 +56,13 @@ async function main(): Promise<void> {
     : undefined;
   if (google) console.log('[gateway] Google sign-in is on');
 
+  const paymentsConfig: PaymentsConfig =
+    process.env.PAYMENT_PROVIDER === 'stripe'
+      ? { provider: 'stripe', publishableKey: requireEnv('STRIPE_PUBLISHABLE_KEY') }
+      : { provider: 'fake' };
+  if (paymentsConfig.provider === 'stripe' && !paymentsConfig.publishableKey.startsWith('pk_test_'))
+    throw new Error('STRIPE_PUBLISHABLE_KEY must be a test key (pk_test_...)');
+
   const hub = new SeatStreamHub();
   const kafka = createKafka(requireEnv('KAFKA_BROKERS').split(','), 'gateway');
   const bookingHub = new BookingStreamHub();
@@ -96,6 +104,7 @@ async function main(): Promise<void> {
       jwtSecret: secret,
       devLogin,
       google,
+      paymentsConfig,
     }),
   );
   mountTelemetry(app, 'gateway');

@@ -9,3 +9,4 @@ export * from './waiting-room/admission';
 export * from './http/dev-login.controller';
 export * from './rate-limit/rate-limit';
 export * from './auth/google';
+export * from './http/payments-config.controller';

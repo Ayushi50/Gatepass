@@ -218,7 +218,15 @@ Tuning: `HOLD_SWEEP_INTERVAL_MS` (1000), `HOLD_GRACE_MS` (60000), `WAITING_ROOM_
 
 ## Payments (test mode only)
 
-`PAYMENT_PROVIDER=fake` (default for development) or `razorpay` (test keys `rzp_test_...` only; live keys are refused). With `fake`, tokens choose the outcome: `tok_success`, `tok_declined`, `tok_rejected`; set `FAKE_AUTO_WEBHOOK_MS` and the fake provider delivers its own signed webhook after that delay. Point the provider's webhook at `POST /webhooks/<provider>` on the payment service.
+`PAYMENT_PROVIDER` is `fake` (default for development), `stripe` or `razorpay`. Only test keys are accepted (`sk_test_`, `rzp_test_`); a live key makes the service refuse to start.
+
+**Stripe.** Put `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY` (test mode) in `.env`; `pnpm stack` then charges through Stripe and checkout shows Stripe's own card fields (cards only; UPI and netbanking are not offered). Card details go from the browser to Stripe, and we only receive a one-time `pm_...` id. The server creates and confirms one PaymentIntent per payment, with our payment id as Stripe's idempotency key. Use card `4242 4242 4242 4242` (any future expiry, any CVC); `4000 0000 0000 0002` is declined. A charge Stripe reports as succeeded in its own reply settles the payment at once; the signed webhook (`POST /webhooks/stripe`, signature and 5-minute age checked) then finds it already settled. For webhooks, run `stripe listen --forward-to 127.0.0.1:3004/webhooks/stripe` and put the printed `whsec_...` in `STRIPE_WEBHOOK_SECRET`. Without it, refund confirmations and late failures cannot reach us.
+
+**Fake.** Tokens choose the outcome: `tok_success`, `tok_declined`, `tok_rejected`; set `FAKE_AUTO_WEBHOOK_MS` and the provider delivers its own signed webhook after that delay.
+
+**Razorpay** (`rzp_test_...`): point the provider's webhook at `POST /webhooks/razorpay` on the payment service.
+
+Tests use fakes of each provider's server (`services/payment/test/stripe.test.ts`); no real Stripe call is made by the test suite, and the real Stripe API has not been exercised until you add keys.
 
 ## Event envelope
 
