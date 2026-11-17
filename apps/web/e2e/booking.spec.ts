@@ -51,6 +51,12 @@ test('a stranger is sent to sign in for the shows, seats and tickets; someone si
   const user = await signIn(browser, 'attendee', 'skipper');
   await user.page.goto('/sign-in?next=%2Fevents');
   await user.page.waitForURL(/\/events$/); // already signed in: straight through
+
+  // signing out: the link is there, and afterwards the shows are locked again
+  await user.page.getByRole('button', { name: 'Sign out' }).click();
+  await user.page.waitForURL(/\/sign-in$/);
+  await user.page.goto('/events');
+  await user.page.waitForURL(/\/sign-in\?/);
   await user.context.close();
 });
 

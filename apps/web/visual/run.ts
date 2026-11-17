@@ -302,9 +302,10 @@ async function shoot(
   if (which === 'next') await s.setupNext?.(page);
   else await s.setupDesign?.(page);
   // `[hidden]` is honoured on both sides: the design's CSS accidentally un-hides its stand-in
-  // buttons, the app does not (ADR 0018). Everything else is compared as drawn.
+  // buttons, the app does not (ADR 0018). The app's "Sign out" link has no design counterpart.
+  // Everything else is compared as drawn.
   await page.addStyleTag({
-    content: `*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}[hidden]{display:none!important}${s.css ?? ''}`,
+    content: `*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}[hidden]{display:none!important}.signout{display:none!important}${s.css ?? ''}`,
   });
   if (s.normalize) await page.evaluate(s.normalize);
   await page.waitForTimeout(400);

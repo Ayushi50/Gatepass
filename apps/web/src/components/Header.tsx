@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { SignOut } from './SignOut';
 
 export interface NavItem {
   href: string;
@@ -30,6 +31,7 @@ export function Header({ nav }: { nav: NavItem[] }) {
             {n.label}
           </Link>
         ))}
+        <SignOut />
       </nav>
     </header>
   );
@@ -41,18 +43,21 @@ export function StepsHeader({ current }: { current: 'pay' | 'tickets' }) {
   return (
     <header className="site-header">
       <Logo />
-      <ol className="steps" aria-label="Booking steps">
-        <li>Seats</li>
-        {bar}
-        <li aria-current={current === 'pay' ? 'step' : undefined}>Pay</li>
-        {bar}
-        <li
-          aria-current={current === 'tickets' ? 'step' : undefined}
-          style={current === 'pay' ? { color: 'var(--quiet)' } : undefined}
-        >
-          Tickets
-        </li>
-      </ol>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+        <ol className="steps" aria-label="Booking steps">
+          <li>Seats</li>
+          {bar}
+          <li aria-current={current === 'pay' ? 'step' : undefined}>Pay</li>
+          {bar}
+          <li
+            aria-current={current === 'tickets' ? 'step' : undefined}
+            style={current === 'pay' ? { color: 'var(--quiet)' } : undefined}
+          >
+            Tickets
+          </li>
+        </ol>
+        <SignOut />
+      </div>
     </header>
   );
 }
