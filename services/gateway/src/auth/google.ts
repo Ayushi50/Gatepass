@@ -65,11 +65,12 @@ export class GoogleAuth {
     return b64(createHmac('sha256', this.secret).update(`google-state:${data}`).digest());
   }
 
-  start(next: unknown): { location: string; cookie: string } {
+  start(next: unknown, role?: unknown): { location: string; cookie: string } {
     const browser = randomBytes(24).toString('base64url');
     const nonce = randomBytes(16).toString('base64url');
     const body = b64(
       JSON.stringify({
+        r: typeof role === 'string' && role ? role : 'attendee',
         b: sha(browser),
         n: nonce,
         next: safeNext(next),
@@ -102,7 +103,7 @@ export class GoogleAuth {
   }): Promise<{ token: string; next: string }> {
     const [body, sig] = (q.state ?? '').split('.');
     if (!body || !sig || !same(sig, this.mac(body))) throw new SignInError('bad_state');
-    let st: { b: string; n: string; next: string; exp: number };
+    let st: { b: string; n: string; next: string; exp: number; r?: string };
     try {
       st = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
     } catch {
@@ -148,11 +149,15 @@ export class GoogleAuth {
 
     const email = claims.email.toLowerCase();
     const listed = (l?: string[]) => (l ?? []).some((e) => e.trim().toLowerCase() === email);
-    const role: Role = listed(this.o.organizerEmails)
-      ? 'organizer'
-      : listed(this.o.doorStaffEmails)
-        ? 'door-staff'
-        : 'attendee';
+    // everyone may be an attendee; the other roles are only for approved emails, and only on request
+    const wanted = st.r ?? 'attendee';
+    const allowed: Record<string, boolean> = {
+      attendee: true,
+      organizer: listed(this.o.organizerEmails),
+      'door-staff': listed(this.o.doorStaffEmails),
+    };
+    if (!allowed[wanted]) throw new SignInError('not_allowed');
+    const role = wanted as Role;
     const sub = role === 'organizer' ? (this.o.organizerId ?? 'org-demo') : `g-${claims.sub}`;
     return {
       token: signToken({ sub, role }, this.secret, { ttlSeconds: 8 * 3600, now: this.o.now }),

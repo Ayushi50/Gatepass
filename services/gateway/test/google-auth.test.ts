@@ -114,10 +114,10 @@ describe('Google sign-in', () => {
   });
 
   /** Walks the first leg like a browser and returns what it would send back. */
-  async function start(next?: string) {
+  async function start(next?: string, role?: string) {
     const res = await request(app.getHttpServer())
       .get('/api/auth/google/start')
-      .query(next ? { next } : {})
+      .query({ ...(next ? { next } : {}), ...(role ? { role } : {}) })
       .expect(302);
     const loc = new URL(res.headers.location!);
     const cookie = (res.headers['set-cookie'] as unknown as string[])[0]!.split(';')[0]!;
@@ -156,12 +156,8 @@ describe('Google sign-in', () => {
     expect(res.headers.location).toMatch(/^\/sign-in#/);
   });
 
-  it('gives organizer and door-staff roles only to the listed, verified emails', async () => {
-    for (const [email, role] of [
-      ['boss@example.com', 'organizer'],
-      ['GATE@example.com', 'door-staff'],
-      ['someone@example.com', 'attendee'],
-    ] as const) {
+  it('signs everyone in as an attendee unless they ask for a role their email is approved for', async () => {
+    const as = async (email: string, role?: string) => {
       fake.claims = (nonce) => ({
         iss: 'accounts.google.com',
         aud: CLIENT,
@@ -171,9 +167,27 @@ describe('Google sign-in', () => {
         nonce,
         exp: Math.floor(Date.now() / 1000) + 600,
       });
-      const { cookie, state } = await start();
-      const res = await callback({ code: `c-${email}`, state }, cookie).expect(302);
-      expect(verifyToken(fragment(res.headers.location!).get('token')!, SECRET).role).toBe(role);
+      const { cookie, state } = await start(undefined, role);
+      const res = await callback({ code: `c-${email}-${role}`, state }, cookie).expect(302);
+      return res.headers.location!;
+    };
+    const roleOf = (loc: string) => verifyToken(fragment(loc).get('token')!, SECRET).role;
+
+    // listed emails are still attendees by default
+    expect(roleOf(await as('boss@example.com'))).toBe('attendee');
+    expect(roleOf(await as('boss@example.com', 'organizer'))).toBe('organizer');
+    expect(roleOf(await as('GATE@example.com', 'door-staff'))).toBe('door-staff');
+    expect(roleOf(await as('someone@example.com', 'attendee'))).toBe('attendee');
+    // asking for a role you are not approved for is refused, not quietly downgraded
+    for (const [email, role] of [
+      ['someone@example.com', 'organizer'],
+      ['someone@example.com', 'door-staff'],
+      ['boss@example.com', 'door-staff'], // organizer is not door staff
+      ['gate@example.com', 'organizer'],
+      ['boss@example.com', 'admin'], // not a role at all
+    ] as const) {
+      const loc = await as(email, role);
+      expect(loc).toBe('/sign-in?error=not_allowed');
     }
   });
 

@@ -53,6 +53,8 @@ export interface StackOptions {
   admitPerSecond?: number;
   /** Charge through Razorpay (test mode); needs RAZORPAY_* keys in the environment. */
   razorpay?: boolean;
+  /** Offer the demo role picker (the gateway's /api/dev-login). Default true; `pnpm stack` turns it off when Google sign-in is configured. */
+  demoLogin?: boolean;
   /** Also start Jaeger (traces), Prometheus (metrics) and Grafana (dashboard); downloads them on first use. */
   observability?: boolean;
   log?: (line: string) => void;
@@ -198,7 +200,7 @@ export async function startStack(opts: StackOptions = {}): Promise<Stack> {
         {
           JWT_SECRET,
           REDIS_URL: redis.url,
-          ENABLE_DEV_LOGIN: 'true',
+          ENABLE_DEV_LOGIN: opts.demoLogin === false ? 'false' : 'true',
           ...(opts.razorpay
             ? { PAYMENT_PROVIDER: 'razorpay', RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID! }
             : {}),

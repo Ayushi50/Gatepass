@@ -30,11 +30,13 @@ async function main(): Promise<void> {
     seed: !args.has('--no-seed'),
     observability: args.has('--observability'),
     razorpay,
+    // with Google configured, signing in is Google or nothing: no demo role picker
+    demoLogin: !google,
   });
   console.log(`
 Gatepass is running.
 
-  App          http://127.0.0.1:${PORTS.web}        (open this; sign in with Google if .env has the keys, or as a demo user)
+  App          http://127.0.0.1:${PORTS.web}        (open this; sign in with Google if .env has the keys, otherwise as a demo user)
   Gateway API  ${stack.urls.gateway}
   Dashboard    ${stack.urls.grafana ?? '(start with --observability for Grafana, Prometheus, Jaeger)'}
   Traces       ${stack.urls.jaeger ?? '-'}

@@ -34,9 +34,13 @@ export class GoogleAuthController {
   }
 
   @Get('google/start')
-  start(@Query('next') next: string | undefined, @Res() res: Res) {
+  start(
+    @Query('next') next: string | undefined,
+    @Query('role') role: string | undefined,
+    @Res() res: Res,
+  ) {
     if (!this.google) throw new NotFoundException();
-    const { location, cookie } = this.google.start(next);
+    const { location, cookie } = this.google.start(next, role);
     res.setHeader('Set-Cookie', cookie);
     res.setHeader('Cache-Control', 'no-store');
     res.redirect(302, location);
