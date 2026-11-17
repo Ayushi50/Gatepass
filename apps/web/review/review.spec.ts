@@ -55,13 +55,11 @@ const myTickets = (page: Page) =>
 
 test('landing page and the show list: filters work and the sold-out show cannot be opened', async ({
   browser,
-  page: visitor,
 }) => {
-  watch(visitor, 'anonymous');
-  await visitor.goto('/');
-  await shot(visitor, '01-landing');
-  // the shows are for signed-in people
+  // the whole site is for signed-in people
   const { page } = await signIn(browser, 'attendee', 'lister');
+  await page.goto('/');
+  await shot(page, '01-landing');
   await page.goto('/events');
   await expect(page.locator('#show-list li')).toHaveCount(5);
   await shot(page, '02-events');

@@ -38,6 +38,8 @@ test('a stranger is sent to sign in for the shows, seats and tickets; someone si
 }) => {
   const stranger = await browser.newContext();
   const p = await stranger.newPage();
+  await p.goto('/');
+  await p.waitForURL(/\/sign-in$/); // even the front page: sign in first
   for (const path of ['/events', '/seats?event=laugh-lab', '/tickets']) {
     await p.goto(path);
     await p.waitForURL(/\/sign-in\?/);

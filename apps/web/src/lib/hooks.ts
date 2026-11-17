@@ -23,13 +23,13 @@ export function useRequireRole(role: Role): boolean {
 }
 
 /** Sends the visitor to sign in (and back) unless they are signed in as anyone. Returns true once they are. */
-export function useRequireSignIn(): boolean {
+export function useRequireSignIn(returnTo = true): boolean {
   const session = useSession();
   useEffect(() => {
     if (session !== null) return;
     const next = encodeURIComponent(window.location.pathname + window.location.search);
-    window.location.replace(`/sign-in?next=${next}`);
-  }, [session]);
+    window.location.replace(returnTo ? `/sign-in?next=${next}` : '/sign-in');
+  }, [session, returnTo]);
   return !!session;
 }
 
