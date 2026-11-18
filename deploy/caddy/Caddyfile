@@ -1,0 +1,49 @@
+# Caddy gets and renews the HTTPS certificate for @DOMAIN@ by itself (needs ports 80 and 443 open
+# and the domain's A record pointing here). 09-caddy.sh replaces @DOMAIN@ and installs this file.
+#
+# Public surface, and nothing else:
+#   POST /webhooks/razorpay -> payment service (3004). The ONLY payment route exposed: its other routes
+#                              (/payments, /payments/confirm) have no authentication.
+#   /api/*                  -> gateway (3000): REST, Google sign-in callback, SSE streams
+#   everything else         -> Next.js web app (3100)
+
+@DOMAIN@ {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# Razorpay webhook: POST only, straight to the payment service (signature checked there).
+	@razorpay_webhook {
+		path /webhooks/razorpay
+		method POST
+	}
+	handle @razorpay_webhook {
+		request_body {
+			max_size 1MB
+		}
+		reverse_proxy 127.0.0.1:3004
+	}
+
+	# Browser API. No compression and no buffering: server-sent events must stream through.
+	handle /api/* {
+		reverse_proxy 127.0.0.1:3000 {
+			flush_interval -1
+		}
+	}
+
+	# The web app
+	handle {
+		encode zstd gzip
+		reverse_proxy 127.0.0.1:3100
+	}
+
+	log {
+		output file /var/log/caddy/gatepass-access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+	}
+}
