@@ -12,3 +12,7 @@ allowBuilds:
   '@embedded-postgres/linux-arm64': true
   '@embedded-postgres/linux-x64': true
   redis-memory-server: true
+# next 15.5.29 (the last 15.x) pins postcss 8.4.31, which has four advisories fixed in 8.5.23. Remove this
+# override once next is on 16.x, whose own dependency is already 8.5.23 (finding F-07).
+overrides:
+  'next>postcss': '^8.5.23'
