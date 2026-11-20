@@ -42,3 +42,8 @@ export function requireEnv(name: string, env: NodeJS.ProcessEnv = process.env): 
   if (!value) throw new Error(`missing required environment variable ${name}`);
   return value;
 }
+
+/** Readiness probe: the database answers a trivial query. */
+export const postgresReachable = (pool: Pool) => async (): Promise<void> => {
+  await pool.query('SELECT 1');
+};

@@ -1,8 +1,13 @@
 import 'reflect-metadata';
 import { join } from 'node:path';
 import { NestFactory } from '@nestjs/core';
-import { createPool, migrate, requireEnv } from '@gatepass/db';
-import { KafkaEventConsumer, KafkaEventPublisher, createKafka } from '@gatepass/messaging';
+import { createPool, migrate, requireEnv, postgresReachable } from '@gatepass/db';
+import {
+  KafkaEventConsumer,
+  KafkaEventPublisher,
+  createKafka,
+  kafkaReachable,
+} from '@gatepass/messaging';
 import { CONSUMED_TOPICS, CONSUMER_GROUP, analyticsHandler } from './handlers';
 import { AnalyticsModule } from './http/analytics.module';
 import {
@@ -10,6 +15,7 @@ import {
   initTelemetry,
   mountInternalAuth,
   mountTelemetry,
+  mountReadiness,
 } from '@gatepass/telemetry';
 
 async function main(): Promise<void> {
@@ -30,6 +36,10 @@ async function main(): Promise<void> {
 
   const app = await NestFactory.create(AnalyticsModule.forPool(pool));
   mountTelemetry(app, 'analytics');
+  mountReadiness(app, 'analytics', {
+    postgres: postgresReachable(pool),
+    kafka: kafkaReachable(kafka),
+  });
   mountInternalAuth(app);
   app.enableShutdownHooks();
   await app.listen(Number(process.env.PORT ?? 3007));
