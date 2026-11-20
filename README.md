@@ -218,7 +218,6 @@ Each row is backed by a test or run named in the last column.
 - **Readiness:** every service answers `GET /ready` (200 when its database and Kafka, or Redis for the gateway, respond within 2 s; otherwise 503 naming what failed). `/health` is still liveness only.
 - **Sign-in:** Google sign-in exists (see Sign-in) but needs your own Google OAuth client; the demo role picker is only on with `ENABLE_DEV_LOGIN=true`. The token is kept in `localStorage`. All organizers share the one organizer id the seeded shows belong to, and there are no per-user records yet.
 - **`next` is still 15.5.29** (the last 15.x; every fixed release is 16.x, a major upgrade not taken here). Its pinned `postcss` 8.4.31 had four advisories, so `pnpm-workspace.yaml` overrides it to `^8.5.23` (finding F-07); remove the override when `next` moves to 16. `pnpm audit --prod` still reports `uuid` < 11.1.1 (moderate, only affects callers that pass a buffer to v3/v5/v6; this code uses v4/v7).
-- **No LICENSE file**: the owner has not chosen one.
 - **Load numbers are from one laptop** with a fake payment provider (see Load test).
 - The review in `docs/review` lists everything else it found and what was and was not fixed.
 
@@ -258,3 +257,7 @@ The unit tests use a fake Razorpay server and never call the real API.
 Every message is an `EventEnvelope` (see `libs/events/proto/gatepass/events/v1/events.proto`): `eventId` (UUIDv7), `eventType`, `version`, `occurredAtMs`, `correlationId` (the booking ID), `causationId`, `producer`, and a typed `payload`. Topic name equals `eventType`.
 
 CI runs `buf breaking` against the base branch on pull requests, so a breaking schema change fails the build.
+
+## License
+
+MIT, see [LICENSE](LICENSE). The test-mode payment, Google and Razorpay integrations need your own credentials; none are included.
