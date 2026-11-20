@@ -148,6 +148,7 @@ async function main(): Promise<void> {
     await createTopics(kafka.brokers, GROUPS);
 
     const common = {
+      INTERNAL_TOKEN: 'chaos-internal-token-for-testing-only-32-chars',
       KAFKA_BROKERS: kafka.brokers.join(','),
       KAFKA_SESSION_TIMEOUT_MS: '6000',
       KAFKA_HEARTBEAT_INTERVAL_MS: '1000',

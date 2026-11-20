@@ -130,7 +130,12 @@ export async function startStack(opts: StackOptions = {}): Promise<Stack> {
       await startObservability(say, spawned);
       obs.OTEL_EXPORTER_OTLP_ENDPOINT = `http://127.0.0.1:${PORTS.otlp}`;
     }
-    const common = { KAFKA_BROKERS: kafka.brokers.join(','), LAG_INTERVAL_MS: '2000', ...obs };
+    const common = {
+      INTERNAL_TOKEN: 'local-stack-internal-token-for-development-only-32+',
+      KAFKA_BROKERS: kafka.brokers.join(','),
+      LAG_INTERVAL_MS: '2000',
+      ...obs,
+    };
     const svc = (
       name: string,
       dir: string,

@@ -36,7 +36,8 @@ ORGANIZER_EMAILS="$(user ORGANIZER_EMAILS)"
 DOOR_STAFF_EMAILS="$(user DOOR_STAFF_EMAILS)"
 JWT_SECRET="$(secret JWT_SECRET)"
 TICKET_SECRET="$(secret TICKET_SIGNING_SECRET)"
-[ -n "$JWT_SECRET" ] && [ -n "$TICKET_SECRET" ] || { echo "secrets file is incomplete; run 02-secrets.sh" >&2; exit 1; }
+INTERNAL_TOKEN="$(secret INTERNAL_TOKEN)"
+[ -n "$JWT_SECRET" ] && [ -n "$TICKET_SECRET" ] && [ -n "$INTERNAL_TOKEN" ] || { echo "secrets file is incomplete; run 02-secrets.sh" >&2; exit 1; }
 
 id gatepass >/dev/null 2>&1 || useradd --system --create-home --home-dir /var/lib/gatepass --shell /usr/sbin/nologin gatepass
 install -d -m 750 -o root -g gatepass "$ENV_DIR"
@@ -59,11 +60,13 @@ dburl() { # dburl <service-name> <db-name>
 write catalog <<EOF
 PORT=3001
 KAFKA_BROKERS=$BROKERS
+INTERNAL_TOKEN=$INTERNAL_TOKEN
 $(dburl catalog catalog)
 EOF
 write seat-inventory <<EOF
 PORT=3002
 KAFKA_BROKERS=$BROKERS
+INTERNAL_TOKEN=$INTERNAL_TOKEN
 $(dburl seat-inventory seat_inventory)
 HOLD_TTL_MS=$(userd HOLD_TTL_MS 600000)
 HOLD_SWEEP_INTERVAL_MS=$(userd HOLD_SWEEP_INTERVAL_MS 1000)
@@ -72,11 +75,13 @@ EOF
 write booking <<EOF
 PORT=3003
 KAFKA_BROKERS=$BROKERS
+INTERNAL_TOKEN=$INTERNAL_TOKEN
 $(dburl booking booking)
 EOF
 write payment <<EOF
 PORT=3004
 KAFKA_BROKERS=$BROKERS
+INTERNAL_TOKEN=$INTERNAL_TOKEN
 $(dburl payment payment)
 PAYMENT_PROVIDER=razorpay
 RAZORPAY_KEY_ID=$RAZORPAY_KEY_ID
@@ -86,22 +91,26 @@ EOF
 write ticket <<EOF
 PORT=3005
 KAFKA_BROKERS=$BROKERS
+INTERNAL_TOKEN=$INTERNAL_TOKEN
 $(dburl ticket ticket)
 TICKET_SIGNING_KEYS=k1:$TICKET_SECRET
 EOF
 write notification <<EOF
 METRICS_PORT=3006
 KAFKA_BROKERS=$BROKERS
+INTERNAL_TOKEN=$INTERNAL_TOKEN
 $(dburl notification notification)
 EOF
 write analytics <<EOF
 PORT=3007
 KAFKA_BROKERS=$BROKERS
+INTERNAL_TOKEN=$INTERNAL_TOKEN
 $(dburl analytics analytics)
 EOF
 write gateway <<EOF
 PORT=3000
 KAFKA_BROKERS=$BROKERS
+INTERNAL_TOKEN=$INTERNAL_TOKEN
 REDIS_URL=redis://127.0.0.1:6379
 JWT_SECRET=$JWT_SECRET
 CATALOG_URL=http://127.0.0.1:3001

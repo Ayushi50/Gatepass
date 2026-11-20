@@ -15,6 +15,7 @@ import {
   initTelemetry,
   metrics,
   mountTelemetry,
+  mountInternalAuth,
   startAtZero,
 } from '@gatepass/telemetry';
 
@@ -91,6 +92,7 @@ async function main(): Promise<void> {
     rawBody: true,
   });
   mountTelemetry(app, 'payment');
+  mountInternalAuth(app);
   app.enableShutdownHooks();
   await app.listen(port);
   console.log(`[payment] listening on ${port} (provider: ${provider.name})`);

@@ -261,9 +261,23 @@ async function main(): Promise<void> {
       undefined,
       { 'x-user-id': 'mallory' },
     );
-    // KNOWN OPEN (finding F-04): internal services trust the gateway's headers; only network isolation protects them
-    console.log(
-      `KNOWN ${direct.status < 400 ? 'OPEN' : 'FIXED'}  an internal service accepts a caller who simply claims a user id  [${direct.status}]`,
+    // F-04: internal services demand the shared token; claiming a user id is not enough
+    record(
+      direct.status === 401,
+      'an internal service refuses a caller with no internal token',
+      String(direct.status),
+    );
+    const wrong = await req(
+      'GET',
+      `http://127.0.0.1:${PORTS.booking}/bookings/${bookingId}`,
+      undefined,
+      undefined,
+      { 'x-user-id': 'mallory', 'x-internal-token': 'x'.repeat(40) },
+    );
+    record(
+      wrong.status === 401,
+      'an internal service refuses a wrong internal token',
+      String(wrong.status),
     );
     const cors = await req('OPTIONS', '/api/events', undefined, undefined, {
       origin: 'https://evil.example',

@@ -7,7 +7,12 @@ import { OutboxRelay } from '@gatepass/outbox';
 import { CONSUMED_TOPICS, CONSUMER_GROUP, ticketHandler } from './handlers';
 import { TicketModule } from './http/ticket.module';
 import { QrKeyRing } from './qr-token';
-import { collectProcessMetrics, initTelemetry, mountTelemetry } from '@gatepass/telemetry';
+import {
+  collectProcessMetrics,
+  initTelemetry,
+  mountInternalAuth,
+  mountTelemetry,
+} from '@gatepass/telemetry';
 
 async function main(): Promise<void> {
   initTelemetry('ticket'); // tracing is off unless OTEL_EXPORTER_OTLP_ENDPOINT is set
@@ -36,6 +41,7 @@ async function main(): Promise<void> {
 
   const app = await NestFactory.create(TicketModule.forDeps(pool, keys));
   mountTelemetry(app, 'ticket');
+  mountInternalAuth(app);
   app.enableShutdownHooks();
   await app.listen(Number(process.env.PORT ?? 3005));
   console.log(`[ticket] listening on ${process.env.PORT ?? 3005}`);

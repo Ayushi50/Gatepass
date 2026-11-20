@@ -5,7 +5,12 @@ import { createPool, migrate, requireEnv } from '@gatepass/db';
 import { KafkaEventConsumer, KafkaEventPublisher, createKafka } from '@gatepass/messaging';
 import { CONSUMED_TOPICS, CONSUMER_GROUP, analyticsHandler } from './handlers';
 import { AnalyticsModule } from './http/analytics.module';
-import { collectProcessMetrics, initTelemetry, mountTelemetry } from '@gatepass/telemetry';
+import {
+  collectProcessMetrics,
+  initTelemetry,
+  mountInternalAuth,
+  mountTelemetry,
+} from '@gatepass/telemetry';
 
 async function main(): Promise<void> {
   initTelemetry('analytics'); // tracing is off unless OTEL_EXPORTER_OTLP_ENDPOINT is set
@@ -25,6 +30,7 @@ async function main(): Promise<void> {
 
   const app = await NestFactory.create(AnalyticsModule.forPool(pool));
   mountTelemetry(app, 'analytics');
+  mountInternalAuth(app);
   app.enableShutdownHooks();
   await app.listen(Number(process.env.PORT ?? 3007));
   console.log(`[analytics] listening on ${process.env.PORT ?? 3007}`);

@@ -23,6 +23,7 @@ for n in "${PG_NAMES[@]}"; do
   ensure "PG_PASSWORD_$(echo "$n" | tr '[:lower:]' '[:upper:]')" 24
 done
 ensure JWT_SECRET 32                 # 64 hex chars (gateway needs 32+)
+ensure INTERNAL_TOKEN 32            # gateway -> internal services shared secret
 ensure TICKET_SIGNING_SECRET 32      # becomes TICKET_SIGNING_KEYS=k1:<this> (needs 32+)
 
 # Razorpay and Google values are NOT generated: you paste them into deploy/.env.production later.

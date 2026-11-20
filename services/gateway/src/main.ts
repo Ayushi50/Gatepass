@@ -26,10 +26,12 @@ import {
   collectedGauge,
   initTelemetry,
   mountTelemetry,
+  requireInternalToken,
 } from '@gatepass/telemetry';
 
 async function main(): Promise<void> {
   initTelemetry('gateway'); // tracing is off unless OTEL_EXPORTER_OTLP_ENDPOINT is set
+  requireInternalToken(); // the gateway sends it to every internal service
   collectProcessMetrics();
   const secret = requireEnv('JWT_SECRET');
   if (secret.length < 32) throw new Error('JWT_SECRET must be at least 32 characters');

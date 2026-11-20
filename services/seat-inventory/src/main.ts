@@ -12,6 +12,7 @@ import {
   initTelemetry,
   metrics,
   mountTelemetry,
+  mountInternalAuth,
   startAtZero,
 } from '@gatepass/telemetry';
 
@@ -58,6 +59,7 @@ async function main(): Promise<void> {
 
   const app = await NestFactory.create(InventoryModule.forPool(pool));
   mountTelemetry(app, 'seat-inventory');
+  mountInternalAuth(app);
   app.enableShutdownHooks();
   await app.listen(Number(process.env.PORT ?? 3002));
   console.log(`[seat-inventory] listening on ${process.env.PORT ?? 3002}`);
