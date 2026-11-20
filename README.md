@@ -4,6 +4,33 @@ Ticket booking for live events, built as an event-driven microservices system: K
 
 > **Status: Phase 6 (observability and load test), the last phase.** Every service is traced and measured, there is a Grafana dashboard, and a k6 load test proves a 1,000-seat show sells with a duplicate rate of 0.
 
+## Demo
+
+**Watch it (2.5 minutes, narrated):** [`docs/demo/gatepass-walkthrough.mp4`](docs/demo/gatepass-walkthrough.mp4) is one booking from the first click to the door. Open the file on GitHub and it plays in the page. The same recording, with its separate narration track, is in [`docs/demo/`](docs/demo/).
+
+**Run it yourself (about 5 minutes, no cloud account, no Docker):**
+
+```bash
+pnpm install
+KAFKA_HOME=/path/to/kafka_2.13-3.9.0 pnpm stack     # leave this running; it prints http://127.0.0.1:3100
+```
+
+Open http://127.0.0.1:3100 and use "Continue" on the sign-in page to pick a role. Payments use the fake provider and complete by themselves, so nothing is charged and no keys are needed. A good order for showing it:
+
+1. **Attendee:** pick a show, choose seats (the 10-minute hold counts down on the server's clock), pay, watch the three status lights, open the ticket and its QR code.
+2. **Live seat map:** open the same show in a second window as another user. A hold in one window appears in the other without a refresh.
+3. **Door staff:** scan the ticket (valid), then scan it again (used).
+4. **Organizer:** watch sales and the live activity feed; request a refund as the buyer, approve it as the organizer.
+5. **Failure path:** choose Card and pay with the test card `4000 0000 0000 0002`, which the fake provider declines; the page says the seats are back down and they return to sale.
+
+Before showing it, check nothing else is holding the ports. A leftover stack from an earlier run stops the new one from starting:
+
+```bash
+lsof -nP -iTCP:3000-3007,3100 -sTCP:LISTEN     # should print nothing; if it prints node processes, stop them first
+```
+
+For the architecture talking points, the [saga diagram](#booking-and-payment-flow), [what happens when X fails](#what-happens-when-x-fails) and the [load test](#load-test) results are the parts worth having open.
+
 ## Architecture
 
 ```
