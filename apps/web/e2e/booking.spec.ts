@@ -33,7 +33,35 @@ async function chooseAndHold(page: Page, event: string, ids: string[]) {
 const state: { qrToken?: string; code?: string } = {};
 let aarav: { context: BrowserContext; page: Page };
 
-test('the show list is real, and Jazz on the Roof is genuinely sold out', async ({ page }) => {
+test('a stranger is sent to sign in for the shows, seats and tickets; someone signed in skips the sign-in page', async ({
+  browser,
+}) => {
+  const stranger = await browser.newContext();
+  const p = await stranger.newPage();
+  await p.goto('/');
+  await p.waitForURL(/\/sign-in$/); // even the front page: sign in first
+  for (const path of ['/events', '/seats?event=laugh-lab', '/tickets']) {
+    await p.goto(path);
+    await p.waitForURL(/\/sign-in\?/);
+    expect(new URL(p.url()).searchParams.get('next')).toBe(path);
+    await expect(p.getByRole('link', { name: 'Continue with Google' })).toHaveCount(0); // not configured here
+  }
+  await stranger.close();
+
+  const user = await signIn(browser, 'attendee', 'skipper');
+  await user.page.goto('/sign-in?next=%2Fevents');
+  await user.page.waitForURL(/\/events$/); // already signed in: straight through
+
+  // signing out: the link is there, and afterwards the shows are locked again
+  await user.page.getByRole('button', { name: 'Sign out' }).click();
+  await user.page.waitForURL(/\/sign-in$/);
+  await user.page.goto('/events');
+  await user.page.waitForURL(/\/sign-in\?/);
+  await user.context.close();
+});
+
+test('the show list is real, and Jazz on the Roof is genuinely sold out', async ({ browser }) => {
+  const { context, page } = await signIn(browser, 'attendee', 'lister');
   await page.goto('/events');
   await expect(page.locator('#show-list li')).toHaveCount(5);
   const jazz = page.locator('#show-list li', { hasText: 'Jazz on the Roof' });
@@ -42,6 +70,7 @@ test('the show list is real, and Jazz on the Roof is genuinely sold out', async 
   await expect(
     page.locator('#show-list li', { hasText: 'Neon Nights Live' }).locator('a'),
   ).toHaveCount(1);
+  await context.close();
 });
 
 test('a user books seats, pays, sees the three lights, and gets a ticket whose QR code is real', async ({

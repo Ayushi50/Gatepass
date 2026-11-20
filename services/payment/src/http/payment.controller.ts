@@ -19,6 +19,7 @@ import {
   PaymentConflictError,
   PaymentValidationError,
   ProviderUnavailableError,
+  confirmCheckout,
   handleWebhook,
   startPayment,
   type PaymentDeps,
@@ -41,6 +42,37 @@ export class PaymentController {
   @Get('health')
   health() {
     return { status: 'ok', service: 'payment' };
+  }
+
+  /** The buyer finished in the provider's window; the gateway passes on what the page brought back. */
+  @Post('payments/confirm')
+  @HttpCode(200)
+  async confirm(
+    @Body()
+    body: {
+      bookingId?: string;
+      userId?: string;
+      orderId?: string;
+      paymentRef?: string;
+      signature?: string;
+    },
+  ) {
+    try {
+      return await confirmCheckout(this.deps, {
+        bookingId: String(body?.bookingId ?? ''),
+        userId: String(body?.userId ?? ''),
+        orderId: String(body?.orderId ?? ''),
+        paymentRef: String(body?.paymentRef ?? ''),
+        signature: String(body?.signature ?? ''),
+      });
+    } catch (err) {
+      if (err instanceof InvalidSignatureError) throw new BadRequestException('invalid signature');
+      if (err instanceof PaymentValidationError) throw new BadRequestException(err.message);
+      if (err instanceof PayableNotFoundError) throw new NotFoundException(err.message);
+      if (err instanceof PaymentConflictError)
+        throw new ConflictException({ message: err.message, code: err.code });
+      throw err;
+    }
   }
 
   @Post('payments')

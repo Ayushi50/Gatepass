@@ -82,7 +82,7 @@ pnpm schema:lint # buf lint
 
 ## Run everything (one command)
 
-You need Node 20+, pnpm, Java (for Kafka) and an extracted [Apache Kafka](https://kafka.apache.org/downloads) (3.9 works; it runs without ZooKeeper). No Docker.
+You need Node 22.12+, pnpm, Java (for Kafka) and an extracted [Apache Kafka](https://kafka.apache.org/downloads) (3.9 works; it runs without ZooKeeper). No Docker.
 
 ```bash
 pnpm install
@@ -142,20 +142,58 @@ k6 ramps to 50 buyers who all want seats in one 1,000-seat show. Each picks one 
 | ---------------------------------- | -------------------------------------------- |
 | Buyers at peak                     | 50                                           |
 | Run length                         | 60 s                                         |
-| Booking attempts                   | 4,602 (76.4 per second)                      |
-| Bookings confirmed                 | 733 (968 of 1,000 seats sold)                |
+| Booking attempts                   | 4,598 (76.1 per second)                      |
+| Bookings confirmed                 | 727 (960 of 1,000 seats sold)                |
 | Refused because the seat was taken | 3,869                                        |
-| HTTP requests                      | 31,719 (526 per second), 0.00% failed        |
-| HTTP latency p95                   | 3 ms                                         |
-| Request to seat decision p95       | 415 ms                                       |
+| HTTP requests                      | 31,556 (522 per second), 0.00% failed        |
+| HTTP latency p95                   | 4 ms                                         |
+| Request to seat decision p95       | 417 ms                                       |
 | Pay to confirmed p95               | 417 ms (includes the fake provider's 100 ms) |
-| Whole booking p95                  | 829 ms                                       |
+| Whole booking p95                  | 926 ms                                       |
 | Double-clicked payments sent       | 159                                          |
 | Seats sold twice                   | 0                                            |
 | Bookings charged twice             | 0                                            |
 | **Duplicate rate**                 | **0**                                        |
 
-Duplicate rate = (seats held by two confirmed bookings + bookings with two successful charges) ÷ confirmed bookings. The run also checked 733 charges = 733 confirmed bookings and 968 tickets = 968 sold seats. See [ADR 0017](docs/adr/0017-observability-and-load.md).
+Measured again on the final code of the review branch (earlier runs: 733 to 754 confirmed bookings, always duplicate rate 0; "refused" and "double-clicked" counts vary per run). Duplicate rate = (seats held by two confirmed bookings + bookings with two successful charges) ÷ confirmed bookings. The run also checked 727 charges = 727 confirmed bookings and 960 tickets = 960 sold seats. See [ADR 0017](docs/adr/0017-observability-and-load.md).
+
+## What happens when X fails
+
+Each row is backed by a test or run named in the last column.
+
+| Failure                                               | What happens                                                                                                                                         | Proof                                                                                       |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Kafka is down while buyers book                       | The booking is accepted and the event waits in the service's outbox; when Kafka returns the saga resumes and the seats end up held. Nothing is lost. | `loses nothing across a broker outage` (jest); `pnpm review:probe` kills the broker mid-run |
+| A service is killed mid-booking                       | Its consumer group re-reads from the last committed offset; the inbox ignores anything already applied.                                              | `pnpm chaos:real` (SIGKILL on services, all invariants hold)                                |
+| The same message is delivered twice                   | The inbox table makes the second delivery a no-op, and counters are only moved after a first delivery commits.                                       | `does not run the handler twice under concurrent duplicates`                                |
+| A payment webhook arrives twice, late or out of order | One charge only; a final payment state never changes.                                                                                                | `DUPLICATE under concurrency`, `LATE / OUT OF ORDER` (payments tests)                       |
+| The buyer double-clicks Pay                           | The `Idempotency-Key` makes it one payment.                                                                                                          | `20 concurrent identical requests produce exactly one payment`                              |
+| The card is declined                                  | The booking is cancelled and the seats go back on sale, live on every open seat map.                                                                 | browser e2e and `pnpm review`                                                               |
+| The hold runs out                                     | The seats are released after the grace period and the page switches Pay off. If a payment lands just after, it is refunded automatically.            | ADR 0012; `150 randomised interleavings`                                                    |
+| Two people want the same seat                         | Exactly one wins, the other is told the seat is taken.                                                                                               | `1,000 concurrent buyers, 100 seats: exactly 100 succeed`; `pnpm loadtest`                  |
+| Two door gates scan one ticket                        | Exactly one admits.                                                                                                                                  | `TWO GATES AT ONCE: 50 simultaneous scans admit exactly one`                                |
+| A consumer keeps failing on one message               | Retried with backoff, then moved to `<group>.dlq`; `pnpm replay` sends it back once the cause is fixed.                                              | ADR 0005, 0015                                                                              |
+| Redis is down                                         | The gateway's rate limiter lets requests through (and logs it); the waiting room cannot admit new buyers.                                            | `fails open when Redis is unreachable`                                                      |
+| Someone floods the API                                | HTTP 429 with `Retry-After`: 300 calls a minute per user or address, 20 sign-ins a minute per address.                                               | `rate-limit.test.ts`; `pnpm review:probe`                                                   |
+
+## Trade-offs
+
+- **One outbox relay per database, with a lock**, instead of parallel relays: ordering per service is guaranteed, throughput is bounded by one publisher.
+- **Seat holds live in Postgres, not Redis**, so a hold and its sale are one transaction (ADR 0007); the price is more load on the seat database during a rush.
+- **Orchestration, not choreography**, for the booking saga (ADR 0006): one place to read the state, one service that knows the whole flow.
+- **At-least-once delivery with idempotent consumers**, not exactly-once transactions: simpler to run, and the duplicates are tested for.
+- **Fixed-window rate limiting**: simple and shared across gateway instances through Redis, but a client can briefly send twice the limit across a window boundary.
+
+## Known limitations
+
+- **No Docker Compose, Redpanda or schema registry.** Docker was removed at the owner's request; the system runs as local processes against Apache Kafka, with Protobuf schemas checked by `buf` in CI. BUILD_PROMPT.md asked for Compose, Redpanda, a registry and Testcontainers; those are not met.
+- **Internal services need `INTERNAL_TOKEN`.** The gateway sends it as `x-internal-token` to catalog, seat-inventory, booking, payment, ticket and analytics, which answer 401 without it (finding F-04, fixed). `/health`, `/metrics` and `/webhooks/*` stay open. It is one shared secret, so keep those ports off the public network anyway; it was verified by unit tests and a local HTTP test, not yet by `pnpm review:probe`, whose stack would not start here with Kafka 4.4 (the README expects 3.9).
+- **No readiness probe.** `/health` says the process is alive, not that its database and Kafka are reachable.
+- **Sign-in:** Google sign-in exists (see Sign-in) but needs your own Google OAuth client; the demo role picker is only on with `ENABLE_DEV_LOGIN=true`. The token is kept in `localStorage`. All organizers share the one organizer id the seeded shows belong to, and there are no per-user records yet.
+- **`next` 15.5.29 pulls in a `postcss` with known advisories** (build-time CSS processing, no user CSS is processed at runtime). Upgrade `next` when a fixed release is chosen.
+- **No LICENSE file**: the owner has not chosen one.
+- **Load numbers are from one laptop** with a fake payment provider (see Load test).
+- The review in `docs/review` lists everything else it found and what was and was not fixed.
 
 ## Resilience tools
 
@@ -174,9 +212,19 @@ CHAOS_SEED=42   pnpm exec jest --selectProjects unit tests/chaos      # replay o
 
 Tuning: `HOLD_SWEEP_INTERVAL_MS` (1000), `HOLD_GRACE_MS` (60000), `WAITING_ROOM_ADMIT_PER_SECOND` (5), `WAITING_ROOM_ADMISSION_TTL_SECONDS` (300). The gateway needs `REDIS_URL`.
 
+## Sign-in
+
+`ENABLE_DEV_LOGIN=true` shows the demo role picker (never in production). For real sign-in set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `GOOGLE_REDIRECT_URI` (see `.env.example`; register the redirect URI with Google exactly, on the web app's origin). The gateway runs the authorization-code flow: a signed `state` bound to an HttpOnly cookie, a nonce, and checks on the ID token's issuer, audience, expiry and verified email. It then issues the same Gatepass token as before, so the other services are unchanged. Emails in `ORGANIZER_EMAILS` / `DOOR_STAFF_EMAILS` get those roles; everyone else is an attendee. Tests use a fake Google server (`services/gateway/test/google-auth.test.ts`); real Google sign-in is not exercised until you supply credentials.
+
 ## Payments (test mode only)
 
-`PAYMENT_PROVIDER=fake` (default for development) or `razorpay` (test keys `rzp_test_...` only; live keys are refused). With `fake`, tokens choose the outcome: `tok_success`, `tok_declined`, `tok_rejected`; set `FAKE_AUTO_WEBHOOK_MS` and the fake provider delivers its own signed webhook after that delay. Point the provider's webhook at `POST /webhooks/<provider>` on the payment service.
+`PAYMENT_PROVIDER` is `fake` (default for development) or `razorpay`. Only test keys are accepted (`rzp_test_`); a live key makes the service refuse to start.
+
+**Fake.** Tokens choose the outcome: `tok_success`, `tok_declined`, `tok_rejected`; set `FAKE_AUTO_WEBHOOK_MS` and the provider delivers its own signed webhook after that delay.
+
+**Razorpay** (`rzp_test_...`). Put `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` in `.env`; `pnpm stack` then uses it. Pressing Pay creates a Razorpay order, and Razorpay's own window (UPI, card, netbanking) opens for it, so payment details never touch this app. When the window reports success, the page sends the payment id and signature to `POST /api/bookings/:id/pay/confirm`; the payment service checks the signature (HMAC of `order|payment` with the key secret), that the order belongs to this buyer's payment, and then settles it. Test UPI ids are `success@razorpay` and `failure@razorpay`. Closing the window and pressing Pay again reopens the same order. The webhook (`POST /webhooks/razorpay`, secret in `RAZORPAY_WEBHOOK_SECRET`) needs a public address (a tunnel) and is optional: without it, payments still complete from the confirm step, but a payment that fails later or a refund confirmation cannot reach us, and an abandoned order is cleaned up by the seat-hold expiry.
+
+The unit tests use a fake Razorpay server and never call the real API.
 
 ## Event envelope
 

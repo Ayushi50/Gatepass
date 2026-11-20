@@ -1,0 +1,54 @@
+<!doctype html><meta charset="utf-8" /><title>Gatepass walkthrough</title>
+<style>
+  html,
+  body {
+    margin: 0;
+    background: #0d0a10;
+    color: #f5efe6;
+    font-family: system-ui;
+  }
+  main {
+    max-width: 1100px;
+    margin: 24px auto;
+    padding: 0 16px;
+  }
+  video {
+    width: 100%;
+    border-radius: 12px;
+    background: #000;
+  }
+  p {
+    color: #b9aebf;
+  }
+</style>
+<main>
+  <h1>Gatepass walkthrough</h1>
+  <video id="v" src="gatepass-walkthrough.webm" controls playsinline></video>
+  <audio id="a" src="gatepass-narration.m4a" preload="auto"></audio>
+  <p>
+    Narrated tour of one booking, from the first click to the door. Use the video controls; the
+    narration follows them.
+  </p>
+</main>
+<script>
+  const v = document.getElementById('v'),
+    a = document.getElementById('a');
+  const sync = () => {
+    if (Math.abs(a.currentTime - v.currentTime) > 0.25) a.currentTime = v.currentTime;
+  };
+  v.addEventListener('play', () => {
+    sync();
+    a.play();
+  });
+  v.addEventListener('pause', () => a.pause());
+  v.addEventListener('seeking', sync);
+  v.addEventListener('seeked', sync);
+  v.addEventListener('ratechange', () => (a.playbackRate = v.playbackRate));
+  v.addEventListener('volumechange', () => {
+    a.volume = v.volume;
+    a.muted = v.muted;
+  });
+  setInterval(() => {
+    if (!v.paused) sync();
+  }, 1000);
+</script>

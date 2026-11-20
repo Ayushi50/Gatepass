@@ -66,9 +66,14 @@ interface AppLike {
   };
 }
 
-/** Adds the request middleware (traces, timings) and `GET /metrics` to a Nest/Express app. */
+/** Adds the request middleware (traces, timings), `GET /metrics` and `GET /health` (liveness) to a Nest/Express app. */
 export function mountTelemetry(app: unknown, service: string): void {
   const a = app as AppLike;
   a.use(httpTelemetry(service));
   a.getHttpAdapter().get('/metrics', (_req, res) => serveMetrics(res as Res));
+  a.getHttpAdapter().get('/health', (_req, res) => {
+    const r = res as Res;
+    r.setHeader('content-type', 'application/json; charset=utf-8');
+    r.end(JSON.stringify({ status: 'ok', service }));
+  });
 }

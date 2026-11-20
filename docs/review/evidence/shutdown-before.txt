@@ -1,0 +1,3 @@
+booking: exited after ~1s
+gateway: exited after ~1s
+notification: exited after ~1s

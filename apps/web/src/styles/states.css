@@ -32,3 +32,31 @@
   color: var(--muted);
   margin: 22px 0;
 }
+
+/*
+ * The design marks its stand-in buttons (the disabled "Pay" and "Hold these seats") with the
+ * `hidden` attribute, but `.btn { display: inline-flex }` overrides the browser's default for it,
+ * so both the live and the stand-in button were drawn at once. Honour `hidden` everywhere.
+ * See docs/adr/0018.
+ */
+[hidden] {
+  display: none !important;
+}
+
+/* "Sign out", added by the app (the design has no sign-in), so it sits quietly beside the nav. */
+.signout {
+  margin-left: 0;
+  padding: 8px 4px;
+  background: none;
+  border: 0;
+  color: var(--muted, #b9aebf);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.signout:hover,
+.signout:focus-visible {
+  color: var(--text, #f5efe6);
+}

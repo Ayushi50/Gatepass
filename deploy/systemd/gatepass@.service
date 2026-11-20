@@ -1,0 +1,27 @@
+[Unit]
+Description=Gatepass %i
+# Kafka, Postgres and Redis come first; a service that still cannot reach one just exits and is restarted.
+After=network-online.target postgresql.service redis-server.service redpanda.service
+Wants=postgresql.service redis-server.service redpanda.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=gatepass
+Group=gatepass
+WorkingDirectory=@APP_DIR@
+EnvironmentFile=/etc/gatepass/%i.env
+# %i is the package name: catalog, seat-inventory, booking, payment, ticket, notification, analytics, gateway, web
+ExecStart=/usr/bin/env pnpm --filter @gatepass/%i start
+Restart=on-failure
+RestartSec=3
+# a stopped/crashed process takes its whole pnpm -> node tree with it
+KillMode=control-group
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+# logs go to the journal: journalctl -u gatepass@gateway -f
+SyslogIdentifier=gatepass-%i
+
+[Install]
+WantedBy=multi-user.target

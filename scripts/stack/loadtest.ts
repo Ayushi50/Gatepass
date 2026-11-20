@@ -26,6 +26,7 @@ async function main(): Promise<void> {
     observability: process.argv.includes('--observability'),
     autoWebhookMs: 100,
     admitPerSecond: 1000,
+    rateLimitPerMinute: 10_000_000, // k6 is one client; the limiter is proven by the probe, not here
   });
   let failed = false;
   try {

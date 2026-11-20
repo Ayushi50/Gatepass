@@ -76,6 +76,11 @@ export interface PaymentProvider {
    * Verifies the signature over the RAW body and parses it. Throws InvalidSignatureError if it
    * is not authentic. Returns null for authentic events we do not care about.
    */
+  /**
+   * Providers whose checkout happens in their own window (Razorpay): is this payment id and
+   * signature, which the browser got back from that window, genuine for this order?
+   */
+  verifyCheckout?(args: { orderId: string; paymentRef: string; signature: string }): boolean;
   verifyWebhook(
     rawBody: Buffer,
     headers: Record<string, string | undefined>,

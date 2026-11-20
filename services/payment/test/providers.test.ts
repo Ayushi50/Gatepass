@@ -308,3 +308,34 @@ describe('RazorpayTestProvider', () => {
     });
   });
 });
+
+describe('RazorpayTestProvider.verifyCheckout', () => {
+  const p = new RazorpayTestProvider({
+    keyId: 'rzp_test_k',
+    keySecret: 'key_secret_value',
+    webhookSecret: 'whsec',
+  });
+  const sign = (order: string, pay: string, secret = 'key_secret_value') =>
+    hmacHex(secret, `${order}|${pay}`);
+
+  it('accepts the signature Razorpay makes over "order|payment" with the key secret', () => {
+    expect(
+      p.verifyCheckout!({
+        orderId: 'order_1',
+        paymentRef: 'pay_9',
+        signature: sign('order_1', 'pay_9'),
+      }),
+    ).toBe(true);
+  });
+  it('rejects a forged, swapped or empty signature', () => {
+    const good = sign('order_1', 'pay_9');
+    for (const bad of [
+      { orderId: 'order_1', paymentRef: 'pay_9', signature: sign('order_1', 'pay_9', 'other') },
+      { orderId: 'order_2', paymentRef: 'pay_9', signature: good }, // another order
+      { orderId: 'order_1', paymentRef: 'pay_8', signature: good }, // another payment
+      { orderId: 'order_1', paymentRef: 'pay_9', signature: '' },
+      { orderId: 'order_1', paymentRef: 'pay_9', signature: 'zz' },
+    ])
+      expect(p.verifyCheckout!(bad)).toBe(false);
+  });
+});

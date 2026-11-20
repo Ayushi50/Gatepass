@@ -1,0 +1,5 @@
+GitHub Actions run 43637348523 (commit d42e67d): install, schema lint, generate, lint and typecheck pass;
+`pnpm test` fails. Logs need a login, so the cause was found from package metadata:
+  vitest 5.1.0 engines.node = ^22.12.0 || ^24.0.0 || >=26.0.0
+  jsdom  31.0.1 engines.node = ^22.22.2 || ^24.15.0 || >=26.0.0
+The workflow pins node-version: 20. The jest half of `pnpm test` passes on a clean clone (388 tests).

@@ -1,4 +1,10 @@
-import { injectTraceHeaders } from '@gatepass/telemetry';
+import { INTERNAL_TOKEN_HEADER, injectTraceHeaders } from '@gatepass/telemetry';
+
+/** Read per call so tests and fakes need no token; the gateway's main.ts checks it at boot. */
+const internalHeaders = (): Record<string, string> => {
+  const token = process.env.INTERNAL_TOKEN;
+  return token ? { [INTERNAL_TOKEN_HEADER]: token } : {};
+};
 /**
  * The gateway talks to services only through these interfaces (plain HTTP in production,
  * fakes in tests). This is the one place synchronous service calls are allowed (rule 8).
@@ -56,6 +62,8 @@ export interface BookingView {
 export interface PaymentView {
   paymentId: string;
   status: 'created' | 'processing' | 'succeeded' | 'failed';
+  /** The provider's order id, which its checkout window needs (Razorpay). */
+  providerRef?: string;
 }
 
 export interface TicketView {
@@ -117,6 +125,14 @@ export interface PaymentClient {
     token: string;
     idempotencyKey: string;
   }): Promise<PaymentView>;
+  /** The buyer finished in the provider's window; these are what it handed back. */
+  confirm(input: {
+    bookingId: string;
+    userId: string;
+    orderId: string;
+    paymentRef: string;
+    signature: string;
+  }): Promise<PaymentView>;
 }
 export interface TicketClient {
   list(userId: string): Promise<TicketView[]>;
@@ -155,6 +171,7 @@ async function call<T>(baseUrl: string, path: string, init?: RequestInit): Promi
       ...init,
       headers: injectTraceHeaders({
         'content-type': 'application/json',
+        ...internalHeaders(),
         ...(init?.headers as Record<string, string>),
       }),
       signal: AbortSignal.timeout(5000),
@@ -232,6 +249,18 @@ export class HttpPaymentClient implements PaymentClient {
       body: JSON.stringify(input),
     });
   }
+  confirm(input: {
+    bookingId: string;
+    userId: string;
+    orderId: string;
+    paymentRef: string;
+    signature: string;
+  }) {
+    return call<PaymentView>(this.baseUrl, '/payments/confirm', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
 }
 
 export class HttpTicketClient implements TicketClient {
@@ -257,7 +286,7 @@ export class HttpTicketClient implements TicketClient {
     try {
       res = await fetch(`${this.baseUrl}/checkin`, {
         method: 'POST',
-        headers: injectTraceHeaders({ 'content-type': 'application/json' }),
+        headers: injectTraceHeaders({ 'content-type': 'application/json', ...internalHeaders() }),
         body: JSON.stringify({ qrToken, staffId }),
         signal: AbortSignal.timeout(5000),
       });

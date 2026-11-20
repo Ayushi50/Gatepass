@@ -5,7 +5,12 @@ import { createPool, migrate, requireEnv } from '@gatepass/db';
 import { KafkaEventPublisher, createKafka } from '@gatepass/messaging';
 import { OutboxRelay } from '@gatepass/outbox';
 import { CatalogModule } from './http/catalog.module';
-import { collectProcessMetrics, initTelemetry, mountTelemetry } from '@gatepass/telemetry';
+import {
+  collectProcessMetrics,
+  initTelemetry,
+  mountInternalAuth,
+  mountTelemetry,
+} from '@gatepass/telemetry';
 
 async function main(): Promise<void> {
   initTelemetry('catalog'); // tracing is off unless OTEL_EXPORTER_OTLP_ENDPOINT is set
@@ -26,6 +31,7 @@ async function main(): Promise<void> {
 
   const app = await NestFactory.create(CatalogModule.forPool(pool));
   mountTelemetry(app, 'catalog');
+  mountInternalAuth(app);
   app.enableShutdownHooks();
   await app.listen(Number(process.env.PORT ?? 3001));
   console.log(`[catalog] listening on ${process.env.PORT ?? 3001}`);

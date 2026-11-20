@@ -117,7 +117,10 @@ beforeAll(async () => {
         catalog,
         inventory: { getSeats: async () => [], getAvailability: async () => [] },
         bookings,
-        payments: { pay: async () => ({ paymentId: 'p', status: 'processing' }) },
+        payments: {
+          pay: async () => ({ paymentId: 'p', status: 'processing' }),
+          confirm: async () => ({ paymentId: 'p', status: 'succeeded' }),
+        },
         tickets,
         analytics,
         hub: new SeatStreamHub(),

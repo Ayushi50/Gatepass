@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { NestFactory } from '@nestjs/core';
 import { createPool, migrate, requireEnv } from '@gatepass/db';
@@ -14,6 +15,7 @@ import {
   initTelemetry,
   metrics,
   mountTelemetry,
+  mountInternalAuth,
   startAtZero,
 } from '@gatepass/telemetry';
 
@@ -23,7 +25,7 @@ function buildProvider(port: number): PaymentProvider {
     return new RazorpayTestProvider({
       keyId: requireEnv('RAZORPAY_KEY_ID'),
       keySecret: requireEnv('RAZORPAY_KEY_SECRET'),
-      webhookSecret: requireEnv('RAZORPAY_WEBHOOK_SECRET'),
+      webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET || randomBytes(32).toString('hex'), // unset: nothing can pass the signature check
     });
   }
   if (kind === 'fake') {
@@ -90,6 +92,7 @@ async function main(): Promise<void> {
     rawBody: true,
   });
   mountTelemetry(app, 'payment');
+  mountInternalAuth(app);
   app.enableShutdownHooks();
   await app.listen(port);
   console.log(`[payment] listening on ${port} (provider: ${provider.name})`);

@@ -4,7 +4,7 @@
   "packageManager": "pnpm@12.18.0",
   "version": "0.0.0",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12"
   },
   "scripts": {
     "generate": "pnpm --filter @gatepass/events generate",
@@ -20,7 +20,8 @@
     "e2e": "pnpm --filter @gatepass/web e2e",
     "tools": "ts-node --transpile-only scripts/stack/tools-cli.ts",
     "observability:check": "ts-node --transpile-only scripts/stack/observability-check.ts",
-    "loadtest": "ts-node --transpile-only scripts/stack/loadtest.ts"
+    "loadtest": "ts-node --transpile-only scripts/stack/loadtest.ts",
+    "review:probe": "ts-node --transpile-only scripts/stack/review-probe.ts"
   },
   "devDependencies": {
     "@bufbuild/buf": "^1.75.0",

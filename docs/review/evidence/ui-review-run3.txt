@@ -1,0 +1,35 @@
+Running 7 tests using 1 worker
+
+  ✓  1 review/review.spec.ts:52:1 › landing page and the show list: filters work and the sold-out show cannot be opened (694ms)
+  ✓  2 review/review.spec.ts:73:1 › seat map: at most six seats, a seventh click is ignored; netbanking pays; ticket has a QR (3.5s)
+  ✓  3 review/review.spec.ts:104:1 › card pays; a declined card shows the failure state (4.8s)
+  ✓  4 review/review.spec.ts:128:1 › an unpaid hold runs out on screen, payment is switched off, and the seat goes back on sale (29.1s)
+  ✓  5 review/review.spec.ts:148:1 › door: valid, already used and invalid; organizer dashboard; waiting room (8.5s)
+  ✘  6 review/review.spec.ts:199:1 › phone width (390px): every page fits without sideways scrolling (2.5m)
+  -  7 review/review.spec.ts:227:1 › no page logged a console error during the whole run
+
+
+  1) review/review.spec.ts:199:1 › phone width (390px): every page fits without sideways scrolling ─
+
+    Test timeout of 150000ms exceeded.
+
+    Error: page.evaluate: Target page, context or browser has been closed
+
+      204 |     await page.goto(path);
+      205 |     await page.waitForLoadState('networkidle').catch(() => undefined);
+    > 206 |     const w = await page.evaluate(() => document.documentElement.scrollWidth);
+          |                          ^
+      207 |     if (w > 390) overflow.push(`${path} is ${w}px wide`);
+      208 |     await shot(page, `m-${name}`);
+      209 |   };
+        at visit (/Users/ayushipandey/Documents/GitHub/Gatepass/Gatepass/apps/web/review/review.spec.ts:206:26)
+        at /Users/ayushipandey/Documents/GitHub/Gatepass/Gatepass/apps/web/review/review.spec.ts:212:3
+
+    Error Context: test-results-review/review-phone-width-390px-e-7c374--without-sideways-scrolling/error-context.md
+
+  1 failed
+    review/review.spec.ts:199:1 › phone width (390px): every page fits without sideways scrolling ──
+  1 did not run
+  5 passed (3.3m)
+service logs: /var/folders/ly/bf5xq4610817vg7ljxr3x3h40000gn/T/gatepass-chaos-XQZzK4
+[ELIFECYCLE] Command failed with exit code 1.

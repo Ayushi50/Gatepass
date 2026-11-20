@@ -5,6 +5,7 @@ import { Header, NAV } from '@/components/Header';
 import { Loading, State } from '@/components/State';
 import { api, type EventListItem } from '@/lib/api';
 import { dayMonth, fmt, timeOf } from '@/lib/format';
+import { useRequireSignIn } from '@/lib/hooks';
 import '@/styles/events.css';
 
 const KNOWN_CATEGORIES = ['Music', 'Comedy', 'Festivals'];
@@ -14,6 +15,7 @@ const SINGULAR: Record<string, string> = { Festivals: 'Festival' };
 const STATUS_TEXT = { selling_fast: 'Selling fast', available: 'Seats available' } as const;
 
 export default function EventsPage() {
+  const signedIn = useRequireSignIn();
   const [shows, setShows] = useState<EventListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState('All');
@@ -26,7 +28,9 @@ export default function EventsPage() {
       setError((err as Error).message);
     }
   }, []);
-  useEffect(() => void load(), [load]);
+  useEffect(() => {
+    if (signedIn) void load();
+  }, [signedIn, load]);
 
   const categories = [
     'All',

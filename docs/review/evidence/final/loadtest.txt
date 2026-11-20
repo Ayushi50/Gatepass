@@ -1,0 +1,10 @@
+| Booking attempts | 4598 (76.1 per second) |
+| Bookings confirmed | 727 (960 of 1000 seats sold) |
+| HTTP requests | 31556 (522 per second), 0.00% failed |
+| HTTP latency p95 | 4 ms |
+| Request to seat decision p95 | 417 ms |
+| Whole booking p95 | 926 ms |
+| Seats sold twice | 0 |
+| Bookings charged twice | 0 |
+| **Duplicate rate** | **0** |
+consistent: 727 charges = 727 confirmed bookings; 960 tickets = 960 sold seats

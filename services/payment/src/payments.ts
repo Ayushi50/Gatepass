@@ -5,6 +5,7 @@ import { buildEnvelope } from '@gatepass/events';
 import { appendToOutbox, withTransaction, type Queryable } from '@gatepass/outbox';
 import { metrics } from '@gatepass/telemetry';
 import {
+  InvalidSignatureError,
   PAYMENT_METHODS,
   ProviderRejectedError,
   ProviderUnavailableError,
@@ -47,6 +48,8 @@ export interface StartPaymentInput {
 export interface PaymentResult {
   paymentId: string;
   status: Lowercase<PaymentState>;
+  /** The provider's id for this payment (a Razorpay order id), which its checkout window needs. */
+  providerRef?: string;
 }
 
 interface PaymentRow {
@@ -64,9 +67,10 @@ interface PaymentRow {
 
 const KEY_PATTERN = /^[A-Za-z0-9_.:-]{8,128}$/;
 
-const result = (id: string, state: PaymentState): PaymentResult => ({
+const result = (id: string, state: PaymentState, providerRef?: string | null): PaymentResult => ({
   paymentId: id,
   status: state.toLowerCase() as Lowercase<PaymentState>,
+  ...(providerRef ? { providerRef } : {}),
 });
 
 function validate(input: StartPaymentInput): void {
@@ -174,7 +178,7 @@ export async function startPayment(
     throw err;
   }
 
-  if (payment.state !== 'CREATED') return result(payment.id, payment.state);
+  if (payment.state !== 'CREATED') return result(payment.id, payment.state, payment.provider_ref);
   return submitToProvider(deps, payment, input);
 }
 
@@ -215,7 +219,7 @@ async function submitToProvider(
       WHERE id = $1 AND state = 'CREATED' RETURNING state`,
     [payment.id, providerRef],
   );
-  if (advanced.rows[0]) return result(payment.id, 'PROCESSING');
+  if (advanced.rows[0]) return result(payment.id, 'PROCESSING', providerRef);
   // a webhook already settled it while we were storing the reference
   const current = await deps.pool.query<{ state: PaymentState }>(
     'SELECT state FROM payments WHERE id = $1',
@@ -251,13 +255,15 @@ async function applyOutcome(
 
   await tx.query(
     `UPDATE payments
-        SET state = $2, provider_ref = COALESCE($3, provider_ref), failure_reason = $4, updated_at = now()
+        SET state = $2, provider_ref = COALESCE($3, provider_ref), failure_reason = $4,
+            provider_payment_id = COALESCE($5, provider_payment_id), updated_at = now()
       WHERE id = $1`,
     [
       p.id,
       target,
       info.providerRef ?? null,
       outcome === 'failed' ? (info.reason ?? 'failed') : null,
+      info.providerPaymentId ?? null,
     ],
   );
   const payable = await tx.query<{ event_id: string }>(
@@ -362,4 +368,54 @@ export async function handleWebhook(
   });
   after.forEach((f) => f());
   return outcome;
+}
+
+export interface ConfirmCheckoutInput {
+  bookingId: string;
+  userId: string;
+  orderId: string;
+  paymentRef: string;
+  signature: string;
+}
+
+/**
+ * The buyer finished paying in the provider's own window (Razorpay) and the page brings back the
+ * payment id and a signature. If the signature is genuine for THIS payment's order, the payment
+ * succeeded, exactly as if the provider's webhook had said so (and the webhook, if it comes
+ * later, finds it already settled). Only the buyer of the booking can confirm it.
+ */
+export async function confirmCheckout(
+  deps: PaymentDeps,
+  input: ConfirmCheckoutInput,
+): Promise<PaymentResult> {
+  if (!deps.provider.verifyCheckout)
+    throw new PaymentValidationError('this provider has no checkout step');
+  // the signature binds the order to the payment id, so check it before anything else
+  if (!deps.provider.verifyCheckout(input))
+    throw new InvalidSignatureError('bad checkout signature');
+  const found = await deps.pool.query<{ id: string }>(
+    `SELECT id FROM payments
+      WHERE booking_id = $1 AND user_id = $2 AND provider = $3 AND provider_ref = $4
+      ORDER BY created_at DESC LIMIT 1`,
+    [input.bookingId, input.userId, deps.provider.name, input.orderId],
+  );
+  if (!found.rows[0]) throw new PayableNotFoundError('no such payment');
+
+  const after: (() => void)[] = [];
+  const out = await withTransaction(deps.pool, async (tx) => {
+    const locked = await lockPayment(tx, found.rows[0]!.id);
+    if (!locked) throw new PayableNotFoundError('no such payment');
+    const r = await applyOutcome(
+      tx,
+      locked,
+      'succeeded',
+      { providerRef: input.orderId, providerPaymentId: input.paymentRef },
+      after,
+    );
+    if (r === 'conflict')
+      throw new PaymentConflictError('booking_closed', 'that payment already failed');
+    return (await lockPayment(tx, locked.id))!;
+  });
+  after.forEach((f) => f());
+  return result(out.id, out.state, out.provider_ref);
 }

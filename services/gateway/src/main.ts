@@ -12,6 +12,8 @@ import {
   HttpTicketClient,
 } from './clients/clients';
 import { GatewayModule } from './gateway.module';
+import type { PaymentsConfig } from './http/payments-config.controller';
+import { RateLimiter, rateLimitMiddleware } from './rate-limit/rate-limit';
 import { WaitingRoom, WaitingRoomAdmitter } from './waiting-room/waiting-room';
 import {
   ActivityStreamHub,
@@ -24,10 +26,12 @@ import {
   collectedGauge,
   initTelemetry,
   mountTelemetry,
+  requireInternalToken,
 } from '@gatepass/telemetry';
 
 async function main(): Promise<void> {
   initTelemetry('gateway'); // tracing is off unless OTEL_EXPORTER_OTLP_ENDPOINT is set
+  requireInternalToken(); // the gateway sends it to every internal service
   collectProcessMetrics();
   const secret = requireEnv('JWT_SECRET');
   if (secret.length < 32) throw new Error('JWT_SECRET must be at least 32 characters');
@@ -37,6 +41,29 @@ async function main(): Promise<void> {
     console.warn(
       '[gateway] DEMO SIGN-IN IS ON (ENABLE_DEV_LOGIN=true): anyone can get a token. Never use this in production.',
     );
+
+  const list = (v?: string) =>
+    (v ?? '')
+      .split(',')
+      .map((e) => e.trim())
+      .filter(Boolean);
+  const google = process.env.GOOGLE_CLIENT_ID
+    ? {
+        clientId: process.env.GOOGLE_CLIENT_ID,
+        clientSecret: requireEnv('GOOGLE_CLIENT_SECRET'),
+        redirectUri: requireEnv('GOOGLE_REDIRECT_URI'),
+        organizerEmails: list(process.env.ORGANIZER_EMAILS),
+        doorStaffEmails: list(process.env.DOOR_STAFF_EMAILS),
+      }
+    : undefined;
+  if (google) console.log('[gateway] Google sign-in is on');
+
+  const paymentsConfig: PaymentsConfig =
+    process.env.PAYMENT_PROVIDER === 'razorpay'
+      ? { provider: 'razorpay', keyId: requireEnv('RAZORPAY_KEY_ID') }
+      : { provider: 'fake' };
+  if (paymentsConfig.provider === 'razorpay' && !paymentsConfig.keyId.startsWith('rzp_test_'))
+    throw new Error('RAZORPAY_KEY_ID must be a test key (rzp_test_...)');
 
   const hub = new SeatStreamHub();
   const kafka = createKafka(requireEnv('KAFKA_BROKERS').split(','), 'gateway');
@@ -78,9 +105,22 @@ async function main(): Promise<void> {
       waitingRoom,
       jwtSecret: secret,
       devLogin,
+      google,
+      paymentsConfig,
     }),
   );
   mountTelemetry(app, 'gateway');
+  app.use(
+    rateLimitMiddleware(
+      new RateLimiter(redis, {
+        onError: (e) => console.error('[gateway] rate limiter:', (e as Error).message),
+      }),
+      {
+        perMinute: Number(process.env.RATE_LIMIT_PER_MINUTE ?? 300),
+        signInsPerMinute: Number(process.env.RATE_LIMIT_SIGNINS_PER_MINUTE ?? 20),
+      },
+    ),
+  );
   app.enableShutdownHooks();
   await app.listen(Number(process.env.PORT ?? 3000));
   console.log(`[gateway] listening on ${process.env.PORT ?? 3000}`);

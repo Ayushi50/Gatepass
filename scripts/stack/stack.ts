@@ -45,10 +45,16 @@ export interface StackOptions {
   holdTtlMs?: number;
   /** Extra time after expiry before an unpaid hold is released. Default 60 seconds. */
   holdGraceMs?: number;
+  /** Gateway rate limit per client per minute. Default 300 (the load test raises it). */
+  rateLimitPerMinute?: number;
   /** How soon the FAKE payment provider reports a payment as done, in ms. Default 800. */
   autoWebhookMs?: number;
   /** Waiting-room admissions per second. Default 5. */
   admitPerSecond?: number;
+  /** Charge through Razorpay (test mode); needs RAZORPAY_* keys in the environment. */
+  razorpay?: boolean;
+  /** Offer the demo role picker (the gateway's /api/dev-login). Default true; `pnpm stack` turns it off when Google sign-in is configured. */
+  demoLogin?: boolean;
   /** Also start Jaeger (traces), Prometheus (metrics) and Grafana (dashboard); downloads them on first use. */
   observability?: boolean;
   log?: (line: string) => void;
@@ -124,7 +130,12 @@ export async function startStack(opts: StackOptions = {}): Promise<Stack> {
       await startObservability(say, spawned);
       obs.OTEL_EXPORTER_OTLP_ENDPOINT = `http://127.0.0.1:${PORTS.otlp}`;
     }
-    const common = { KAFKA_BROKERS: kafka.brokers.join(','), LAG_INTERVAL_MS: '2000', ...obs };
+    const common = {
+      INTERNAL_TOKEN: 'local-stack-internal-token-for-development-only-32+',
+      KAFKA_BROKERS: kafka.brokers.join(','),
+      LAG_INTERVAL_MS: '2000',
+      ...obs,
+    };
     const svc = (
       name: string,
       dir: string,
@@ -159,7 +170,16 @@ export async function startStack(opts: StackOptions = {}): Promise<Stack> {
         'payment',
         {
           ...url('payment'),
-          PAYMENT_PROVIDER: 'fake',
+          PAYMENT_PROVIDER: opts.razorpay ? 'razorpay' : 'fake',
+          ...(opts.razorpay
+            ? {
+                RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID!,
+                RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET!,
+                ...(process.env.RAZORPAY_WEBHOOK_SECRET
+                  ? { RAZORPAY_WEBHOOK_SECRET: process.env.RAZORPAY_WEBHOOK_SECRET }
+                  : {}),
+              }
+            : {}),
           FAKE_WEBHOOK_SECRET: 'local-stack-fake-webhook-secret',
           FAKE_AUTO_WEBHOOK_MS: String(opts.autoWebhookMs ?? 800),
         },
@@ -185,7 +205,16 @@ export async function startStack(opts: StackOptions = {}): Promise<Stack> {
         {
           JWT_SECRET,
           REDIS_URL: redis.url,
-          ENABLE_DEV_LOGIN: 'true',
+          ENABLE_DEV_LOGIN: opts.demoLogin === false ? 'false' : 'true',
+          ...(opts.razorpay
+            ? { PAYMENT_PROVIDER: 'razorpay', RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID! }
+            : {}),
+          ...(opts.rateLimitPerMinute === undefined
+            ? {}
+            : {
+                RATE_LIMIT_PER_MINUTE: String(opts.rateLimitPerMinute),
+                RATE_LIMIT_SIGNINS_PER_MINUTE: String(opts.rateLimitPerMinute),
+              }),
           WAITING_ROOM_ADMIT_PER_SECOND: String(opts.admitPerSecond ?? 5),
           CATALOG_URL: `http://127.0.0.1:${PORTS.catalog}`,
           SEAT_INVENTORY_URL: `http://127.0.0.1:${PORTS.inventory}`,
@@ -202,7 +231,7 @@ export async function startStack(opts: StackOptions = {}): Promise<Stack> {
     await Promise.all(list.map((p) => p.start()));
     say('services are up');
 
-    if (opts.seed !== false) await seed(databases.catalog, say);
+    if (opts.seed !== false) await seed(databases.catalog, say, !opts.razorpay);
 
     if (opts.web !== false) {
       const next = require.resolve('next/dist/bin/next', { paths: [WEB] });
@@ -249,7 +278,12 @@ export async function startStack(opts: StackOptions = {}): Promise<Stack> {
 }
 
 /** The five demo shows from design/events.html; Jazz on the Roof is then genuinely sold out. */
-async function seed(catalogDb: TestDatabase, say: (m: string) => void): Promise<void> {
+async function seed(
+  catalogDb: TestDatabase,
+  say: (m: string) => void,
+  /** Selling Jazz out means paying with the fake provider's test token; a real provider cannot do that. */
+  sellOutJazz: boolean,
+): Promise<void> {
   for (const e of DEMO_EVENTS) await createEvent(catalogDb.pool, e);
   const probe = token('probe', 'attendee');
   for (const e of DEMO_EVENTS) {
@@ -262,6 +296,12 @@ async function seed(catalogDb: TestDatabase, say: (m: string) => void): Promise<
       if (i > 120) throw new Error(`${e.id} never reached seat-inventory`);
       await sleep(500);
     }
+  }
+  if (!sellOutJazz) {
+    say(
+      'five demo shows published (Jazz on the Roof stays on sale: a real payment provider cannot be paid by the seed)',
+    );
+    return;
   }
   say('five demo shows published; selling out Jazz on the Roof...');
 

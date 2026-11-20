@@ -1,0 +1,4 @@
+    ✕ gives every service GET /metrics and a GET /health that says it is alive (2 ms)
+    - Expected  - 1
+    + Received  + 0
+Tests:       1 failed, 1 total
