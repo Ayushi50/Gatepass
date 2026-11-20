@@ -1,6 +1,11 @@
 import { join } from 'node:path';
-import { createPool, migrate, requireEnv } from '@gatepass/db';
-import { KafkaEventConsumer, KafkaEventPublisher, createKafka } from '@gatepass/messaging';
+import { createPool, migrate, postgresReachable, requireEnv } from '@gatepass/db';
+import {
+  KafkaEventConsumer,
+  KafkaEventPublisher,
+  createKafka,
+  kafkaReachable,
+} from '@gatepass/messaging';
 import { CONSUMED_TOPICS, CONSUMER_GROUP, notificationHandler } from './handlers';
 import { collectProcessMetrics, initTelemetry, startMetricsServer } from '@gatepass/telemetry';
 
@@ -8,11 +13,14 @@ import { collectProcessMetrics, initTelemetry, startMetricsServer } from '@gatep
 async function main(): Promise<void> {
   initTelemetry('notification');
   collectProcessMetrics();
-  startMetricsServer(Number(process.env.METRICS_PORT ?? 3006));
   const pool = createPool(requireEnv('DATABASE_URL'));
   await migrate(pool, join(__dirname, '..', 'migrations'));
 
   const kafka = createKafka(requireEnv('KAFKA_BROKERS').split(','), 'notification');
+  startMetricsServer(Number(process.env.METRICS_PORT ?? 3006), {
+    postgres: postgresReachable(pool),
+    kafka: kafkaReachable(kafka),
+  });
   const handle = notificationHandler(pool);
   await new KafkaEventConsumer({
     kafka,

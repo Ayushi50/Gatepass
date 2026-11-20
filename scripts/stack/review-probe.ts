@@ -306,6 +306,15 @@ async function main(): Promise<void> {
         `${name} answers /health`,
         `${h.status} ${JSON.stringify(h.body).slice(0, 60)}`,
       );
+      const rd = await req('GET', `http://127.0.0.1:${port}/ready`).catch(() => ({
+        status: 0,
+        body: '',
+      }));
+      record(
+        rd.status === 200,
+        `${name} answers /ready (database, Kafka or Redis reachable)`,
+        `${rd.status} ${JSON.stringify(rd.body).slice(0, 90)}`,
+      );
     }
 
     console.log('\n-- request flood');

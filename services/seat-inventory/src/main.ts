@@ -1,8 +1,13 @@
 import 'reflect-metadata';
 import { join } from 'node:path';
 import { NestFactory } from '@nestjs/core';
-import { createPool, migrate, requireEnv } from '@gatepass/db';
-import { KafkaEventConsumer, KafkaEventPublisher, createKafka } from '@gatepass/messaging';
+import { createPool, migrate, requireEnv, postgresReachable } from '@gatepass/db';
+import {
+  KafkaEventConsumer,
+  KafkaEventPublisher,
+  createKafka,
+  kafkaReachable,
+} from '@gatepass/messaging';
 import { OutboxRelay } from '@gatepass/outbox';
 import { HoldSweeper } from './expiry';
 import { CONSUMED_TOPICS, CONSUMER_GROUP, seatInventoryHandler } from './handlers';
@@ -14,6 +19,7 @@ import {
   mountTelemetry,
   mountInternalAuth,
   startAtZero,
+  mountReadiness,
 } from '@gatepass/telemetry';
 
 async function main(): Promise<void> {
@@ -59,6 +65,10 @@ async function main(): Promise<void> {
 
   const app = await NestFactory.create(InventoryModule.forPool(pool));
   mountTelemetry(app, 'seat-inventory');
+  mountReadiness(app, 'seat-inventory', {
+    postgres: postgresReachable(pool),
+    kafka: kafkaReachable(kafka),
+  });
   mountInternalAuth(app);
   app.enableShutdownHooks();
   await app.listen(Number(process.env.PORT ?? 3002));

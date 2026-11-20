@@ -3,8 +3,8 @@ import { timingSafeEqual } from 'node:crypto';
 /** Header the gateway sends on every call to an internal service. */
 export const INTERNAL_TOKEN_HEADER = 'x-internal-token';
 
-/** Paths an internal service answers without the token (liveness, metrics, provider webhooks). */
-const OPEN_PREFIXES = ['/health', '/metrics', '/webhooks/'];
+/** Paths an internal service answers without the token (liveness, readiness, metrics, provider webhooks). */
+const OPEN_PREFIXES = ['/health', '/ready', '/metrics', '/webhooks/'];
 
 interface Req {
   url: string;
@@ -37,7 +37,7 @@ function same(a: string, b: string): boolean {
 /**
  * Express/Nest middleware for the INTERNAL services (not the gateway): every request must carry
  * the shared token, so a caller who reaches the port directly cannot act as any user.
- * `/health`, `/metrics` and `/webhooks/*` (signature-checked by the payment provider code) stay open.
+ * `/health`, `/ready`, `/metrics` and `/webhooks/*` (signature-checked by the payment provider code) stay open.
  */
 export function internalAuth(token: string) {
   return (req: Req, res: Res, next: () => void): void => {

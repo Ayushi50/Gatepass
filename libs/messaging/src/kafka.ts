@@ -11,6 +11,17 @@ export function createKafka(brokers: string[], clientId: string): Kafka {
   return new Kafka({ clientId, brokers, logLevel: logLevel.WARN });
 }
 
+/** Readiness probe: a broker answers a metadata request (new admin client each time, so a restart is noticed). */
+export const kafkaReachable = (kafka: Kafka) => async (): Promise<void> => {
+  const admin = kafka.admin();
+  await admin.connect();
+  try {
+    await admin.fetchTopicMetadata({ topics: [] });
+  } finally {
+    await admin.disconnect().catch(() => undefined);
+  }
+};
+
 const toHeaders = (headers: Record<string, string>) => headers;
 
 /** Publishes to Kafka with an idempotent producer and acks=all. Used by the outbox relay. */

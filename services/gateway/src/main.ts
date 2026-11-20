@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { Redis } from 'ioredis';
 import { requireEnv } from '@gatepass/db';
-import { KafkaEventPublisher, createKafka } from '@gatepass/messaging';
+import { KafkaEventPublisher, createKafka, kafkaReachable } from '@gatepass/messaging';
 import {
   HttpBookingClient,
   HttpAnalyticsClient,
@@ -27,6 +27,7 @@ import {
   initTelemetry,
   mountTelemetry,
   requireInternalToken,
+  mountReadiness,
 } from '@gatepass/telemetry';
 
 async function main(): Promise<void> {
@@ -110,6 +111,10 @@ async function main(): Promise<void> {
     }),
   );
   mountTelemetry(app, 'gateway');
+  mountReadiness(app, 'gateway', {
+    redis: () => redis.ping(),
+    kafka: kafkaReachable(kafka),
+  });
   app.use(
     rateLimitMiddleware(
       new RateLimiter(redis, {
